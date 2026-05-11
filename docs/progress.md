@@ -1,6 +1,6 @@
 # Mini Pay 학습 진행 상황
 
-> **마지막 업데이트**: 2026-05-04
+> **마지막 업데이트**: 2026-05-11
 > **가이드**: `docs/mini-pay-guide.md`
 > **컨벤션**: `CLAUDE.md` (프로젝트 루트)
 > **ADR**: `docs/adr/`
@@ -10,23 +10,51 @@
 
 ## 🎯 현재 위치
 
-**Step 3 진행 중 — Phase 1~3 완료, Phase 4 사용자 작성 대기.**
+**Step 3 마무리 직전 — 엔티티 본문 모두 완성. `compileJava` 확인 → 머지만 남음.**
 
 ### 완료
 - 사전 인프라: `CLAUDE.md` + `docs/adr/README.md` 작성
 - `application.yml`에 `open-in-view: false` 추가
-- `V2__money_value_object.sql` 작성 (Money VO 컬럼 분할)
+- `V2__money_value_object.sql` 작성 (Money VO 컬럼 분할 — `amount_amount`/`amount_currency`, `balance_after_amount`/`balance_after_currency`)
 - 샘플 자바: `Currency.java`, `Money.java`(VO), `Account.java`, `InsufficientBalanceException.java`
+- `TransactionType.java` ✅ (CHARGE/PAYMENT, [주석 목적] 블록 포함)
+- `TransactionStatus.java` ✅ (SUCCESS/FAILED, [주석 목적] 블록 포함, PENDING은 동기 처리라 미도입)
+- `User.java` ✅ (필드 6개 + 정적 팩토리 `register` 본문 완성, 2차 채점 통과 — 검증 4번 반복은 헬퍼 추출 안 하고 그대로 둠)
+- 주석 채점 워크플로우 정착: 본 코드 정리 + 파일 하단 `[주석 목적]` 블록으로 학습 흔적 보존
+  (메모리에 feedback으로 저장됨)
+- **ADR 0001~0005 작성 완료 (2026-05-08)**:
+  - 0001 — Money Value Object 도입
+  - 0002 — Enum + EnumType.STRING 매핑
+  - 0003 — 정적 팩토리 메서드 vs Builder
+  - 0004 — Flyway 단방향 마이그레이션 정책
+  - 0005 — Transaction은 Account를 ID로 참조
+- **학습 자산 문서 2종 추가 (2026-05-11)**:
+  - `docs/uLearn.md` — 완성 시 보유할 학습 자산 인덱스(동시성/멱등성/도메인/JPA/보안/운영) + 면접 질문 매핑
+  - `docs/uShould.md` — Step 4~11에서 채워야 할 산출물(패키지·파일 단위 30~40개) + ADR 0006~0009 후보
 
-### 결정 사항 (Step 3)
-- Money VO 지금 도입 (`@Embeddable` + `Currency` enum)
-- type/status는 Enum + `@Enumerated(EnumType.STRING)`
-- 진행 방식: Claude 샘플 → 사용자 따라 쓰기
+### 진행 중 — `compileJava` + 머지만
+- `Transaction.java` ✅ (필드 9개 + `charge`/`payment` 본문 완성, 1차 채점 통과)
+  - `@Embedded` Money 컬럼명 V2 마이그레이션과 일치 (`amount_amount`, `balance_after_amount`)
+  - `idempotencyKey` / `merchantId` 검증은 엔티티 레벨에서 의도적 생략 — Step 8 결제 API Controller에서 책임
+  - 사용자가 `@ManyToOne` 버전을 먼저 시도했었음 → A안(ID 참조)로 재작성됨
+  - 채점 흔적: 파일 하단 `[주석 목적]` 블록에 스캐폴드 주석 9종 분석 보존
 
-### 다음 액션 (사용자)
-1. `User.java`, `Transaction.java`, `TransactionType.java`, `TransactionStatus.java` 작성
-2. `./gradlew bootRun` → 결과 공유
-3. 검증 통과 시 ADR 4장 작성 (0001~0004) → Step 4 진입
+### 미작성
+- 모니터링 스택(Actuator/Prometheus/Grafana) — 가이드에 없음. 완주 후 면접 답변지 보강용 확장 후보.
+
+### 결정 사항 (Step 3, ADR로 모두 기록 완료)
+- ADR 0001: Money VO 도입 (`@Embeddable` + `Currency` enum, scale 4 / HALF_EVEN)
+- ADR 0002: type/status는 Enum + `@Enumerated(EnumType.STRING)` (ORDINAL 절대 금지)
+- ADR 0003: 정적 팩토리 메서드만 노출 (setter/Builder 금지, 도메인 동사 이름)
+- ADR 0004: Flyway 단방향 (V1 수정 금지, `down -v` 회복 금지)
+- ADR 0005: Transaction → Account는 ID 참조 (`Long accountId`)
+- 진행 방식: Claude 샘플 → 사용자 따라 쓰기 + 주석 채점 워크플로우 병행
+
+### 다음 액션 (다음 세션 시작 시)
+1. `.\gradlew compileJava` → BUILD SUCCESSFUL 확인
+2. (DB 띄운 상태에서) `.\gradlew build` → 통합 검증
+3. step-3-entities → main 머지 (머지 설명은 2026-05-04 대화 요약 참고)
+4. Step 4 회원가입 API 진입
 
 ---
 
@@ -51,7 +79,17 @@
   - [x] V1__init.sql 작성 (NUMERIC(19,4) + TIMESTAMPTZ)
   - [x] sql.md (ERD Cloud용 MySQL 버전) 동기화
   - [x] `./gradlew bootRun`으로 마이그레이션 통과 확인 (2026-04-29 14:27)
-- [ ] Step 3 — 엔티티 작성 (BigDecimal + OffsetDateTime) ⬅️ 다음
+- [ ] **Step 3 — 엔티티 작성** ⬅️ 진행 중 (Transaction 빈칸 + 머지만 남음)
+  - [x] V2__money_value_object.sql (Money VO 컬럼 분할)
+  - [x] Currency / Money(VO) / Account / InsufficientBalanceException (샘플)
+  - [x] TransactionType (CHARGE/PAYMENT)
+  - [x] TransactionStatus (SUCCESS/FAILED)
+  - [x] User.java (필드 6개 + register 본문 ✅)
+  - [x] Transaction.java (스캐폴드 + charge/payment 본문 ✅, 1차 채점 통과)
+  - [x] ADR 0001~0005 작성
+  - [x] uLearn.md / uShould.md 작성
+  - [ ] `.\gradlew compileJava` BUILD SUCCESSFUL 확인
+  - [ ] step-3-entities → main 머지
 - [ ] Step 4 — 회원가입 API
 - [ ] Step 5 ⚠️ — Spring Security + JWT 필터
 - [ ] Step 6 — 로그인 API
@@ -74,6 +112,23 @@
 
 ## 💬 마지막 대화 요약
 
+### 2026-05-11 — 진행 점검 / Transaction.java 마무리
+
+1. **모니터링 구성 질문** — 현재 `docker-compose.yml`에 `postgres:16` + `redis:7` 두 컨테이너만. Actuator/Micrometer/Prometheus/Grafana 모두 없음. 가이드 Step 0~11에도 모니터링 스텝 없음 → **완주 후 면접 답변지 보강용 확장 후보**로 메모.
+2. **진행 상황 동기화** — `User.java`는 이미 사용자가 `register` 빈칸 6곳을 채워서 완성한 상태였음(2차 채점 흔적 [주석 목적] 블록 보존). progress.md엔 여전히 "빈칸 6곳"으로 남아있어서 동기 어긋남 → 정정.
+3. **새 학습 자료 인지** — `docs/uLearn.md`(완성 시 학습 자산 인덱스)·`docs/uShould.md`(Step 4~11 산출물 매핑)가 새로 추가돼 있어서 진행 체크리스트에 반영.
+4. **Transaction.java 1차 채점**:
+   - 사용자가 13곳 중 charge의 7곳 먼저 채운 상태에서 채점 요청.
+   - 컴파일 에러 2곳 발견 — `tx.type = CHARGE`, `tx.status = SUCCESS` (같은 패키지여도 enum 상수는 `TransactionType.CHARGE`처럼 타입명 한정 필수).
+   - 주석 9종 평가: 메서드 헤더 구분선 / "정적 팩토리 1/2" 라벨 / 단계 번호(1.검증~4.반환) / "충전이라 merchantId는 null로 둠" / "CHARGE 또는 PAYMENT 중 어느 것?" / "동기 처리라 SUCCESS / FAILED 중 정상 케이스" — 전부 WHAT 또는 스캐폴드 메모 → 제거.
+   - 사용자가 "내가 빈칸 채워올게" 선택 → 힌트만 전달 (정답 X).
+5. **Transaction.java 빈칸 완성 + 2차 확인**:
+   - 빈칸 9곳 전부 정답, 컴파일 에러도 둘 다 정상화.
+   - 채점 워크플로우 마무리: 본 코드 주석 0줄로 정리 + 파일 하단 `[주석 목적]` 블록(스캐폴드 9종 분석 + 코드 자체 평가) 추가.
+6. **남은 일**: `compileJava` → 머지 → Step 4 회원가입 API.
+
+### 2026 이전 흐름
+
 1. 사용자가 nginx + postgres 베이스 `docker-compose.yml`을 가져옴 (Mini Pay와 안 맞음)
 2. 점검 결과: nginx 불필요, redis 빠짐, networks/volumes 정의 누락 등 다수 문제
 3. 사용자가 빈칸 퀴즈 → "사전 명세 먼저 달라" 요청 → `docs/spec.md` 생성
@@ -91,6 +146,56 @@
 8. `./gradlew bootRun` 실행 → Flyway 마이그레이션 정상 적용 확인 → **Step 2 완료**
 9. 부팅 경고 2개 인지: OSIV (Step 3에서 끄기), Spring Security 기본 패스워드 (Step 5에서 사라짐)
 
+### 2026-05-08 — Step 3 (ADR 5장 + Transaction 스캐폴드 + 자바 기초 학습)
+
+1. **Spring Boot 부팅 실패** 디버깅 — PostgreSQL 5432 connection refused (`SQLState 08001`)
+   - 원인: docker compose가 안 떠 있어서. `docker compose up -d`로 해결.
+   - 학습: 스택 트레이스는 **`Caused by`를 거꾸로 읽는다** (가장 안쪽 = 진짜 원인).
+   - 학습: SQLState는 ANSI 표준 5자리 (08xxx 연결, 23xxx 무결성, 42xxx 문법, 40xxx 트랜잭션).
+2. **자바 기초 Q&A**:
+   - `email == null || email.isBlank()` 둘 다 필요한 이유 — null 체크 먼저 안 하면 NPE.
+   - NPE는 "false 떠야 해서"가 아니라 **값 자체가 만들어지지 않고 흐름 중단**.
+   - 정적 팩토리 패턴 5단계: 검증 → 인스턴스 → 필드 세팅 → 시간/기본값 → 반환.
+3. **`AccessLevel.PROTECTED` 종류** — Lombok 6값 (PUBLIC/PROTECTED/PACKAGE/PRIVATE/MODULE/NONE) + 자바 접근 제어자 4종 정리. PROTECTED가 JPA 프록시(LAZY) 호환 + 외부 차단 동시 충족.
+4. **`@ManyToOne(fetch = FetchType.LAZY)` 의미** — N:1 관계 + 지연 로딩. JPA 기본값이 EAGER라 명시 필수. N+1 함정 회피.
+5. **결정: Transaction → Account 참조 방식** — 객체 참조(`@ManyToOne`) vs ID 참조(`Long`) 비교 후 **A안(ID 참조)** 선택. 근거: 애그리거트 경계 + open-in-view false 정합 + 일관성. → ADR 0005로 기록.
+6. **ADR 5장 일괄 작성** (사용자 요청 — Transaction.java 작성 전에 결정 근거 먼저 박아두자):
+   - 0001 Money VO / 0002 Enum STRING / 0003 정적 팩토리 / 0004 Flyway 단방향 / 0005 ID 참조
+   - 각 ADR은 Status / Context / Decision / Rationale (대안 비교) / Consequences (좋은 면 / 나쁜 면 / 재검토 신호) / References 6섹션. 면접 답변지로 그대로 활용 가능.
+   - `docs/adr/README.md` 인덱스 갱신 (Status: Accepted, 링크 추가).
+7. **Transaction.java 스캐폴드 작성**:
+   - 사용자가 먼저 `@ManyToOne(fetch = LAZY) User user`로 시작했으나 **잘못된 참조 방향** (Transaction은 Account를 가리켜야 함, User 아님) + **A안 결정과 불일치** → 재작성.
+   - 필드 9개 + `@AttributeOverrides`로 Money 두 번 임베딩 (`amount`, `balanceAfter`) — Account.java는 Money 하나뿐이라 이 패턴이 첫 적용.
+   - V2 마이그레이션 컬럼명과 정확히 일치 확인: `amount_amount`/`amount_currency`, `balance_after_amount`/`balance_after_currency` (`ddl-auto: validate`라 일치 필수).
+   - 정적 팩토리 `charge`/`payment` 본문은 `___` 빈칸으로 — 사용자가 채울 차례.
+8. 사용자가 업무 마무리 요청 → progress.md 갱신 후 종료.
+
+### 2026-05-04 — Step 3 (TransactionType/Status, User 골격, 워크플로우 정착)
+1. 자바 패키지/enum 기초 학습 — `com` 시작 이유(역도메인), enum vs class, enum 값=상수=대문자 관례, STRING 매핑이면 순서 무관 (학습 메모는 본 파일 하단 📚 학습 메모 섹션)
+2. `TransactionType.java` 1차 채점 — 주석 3줄 평가:
+   - line 3 `// transactionType 충전, 결제` → 불필요 (WHAT 주석)
+   - line 4 `// class가 아닌 enum 자율성을 위함` → 의미 거꾸로. 정답은 "타입 안전성 + 유한 선택지 명시"
+   - line 5 자바 문법 메모 → 위치 부적절. 학습 노트로 빼는 게 맞음
+3. **새 워크플로우 정착** (사용자 요청):
+   - 사용자 코드+주석 작성 → Claude 채점 → 본 코드는 주석 제거해 운영 코드처럼 정리 → 파일 **맨 하단**에 `[주석 목적]` 블록 주석 추가 (1. 원문 / 2. 오답 수정 / 3. 좋은 주석 룰)
+   - 메모리 `feedback_comment_grading_workflow.md`로 저장 → 향후 자동 적용
+4. `TransactionType.java` 정리 — 본 코드 주석 0줄 + 하단 `[주석 목적]` 블록
+5. `TransactionStatus.java` 작성 (주석 0개 정답) + 하단에 `[주석 목적]` + 면접 답변 메모(Q1~Q3) 포함
+6. `User.java` 가이드 스캐폴드 작성 (스텝 1~4: import / 어노테이션 / 필드 6개 / 정적 팩토리)
+7. 사용자가 Step 2(어노테이션)만 채워서 커밋 → ⚠️ **import 누락 상태로 push됨** (현재 `@Entity`, `@Getter` 등 빨간줄, compileJava 실패 예정)
+8. 머지 흐름 안내 (PowerShell 기준 git add/commit/push/merge 명령어 + main 직접 머지 vs PR 차이)
+9. 머지 설명 갱신 버전 작성 — 인프라/비밀값/컨벤션·문서/도메인 모델/V2 마이그레이션 섹션 분리
+10. **머지 보류** — User.java import 보완 + Transaction.java까지 마치고 머지하는 게 깔끔하다고 합의
+
+### 머지 설명 (step-3-entities → main, 다음 작업 시 사용)
+인프라(Postgres+Redis docker, application.yml, V1/V2 migration, build.gradle, gradle wrapper) +
+비밀값 관리(.env/.env.example/.gitignore, ${VAR:default} 패턴) +
+컨벤션·문서(CLAUDE.md, docs/adr/0001~0005, progress.md, architecture/schedule/ready/guideEntity/sql.md, uLearn.md, uShould.md) +
+도메인 모델 Step 3(Currency, Money VO, Account, InsufficientBalanceException, TransactionType, TransactionStatus, User 완성, Transaction `charge`/`payment` 본문은 머지 직전에 채움).
+효과: 평문 비밀값 제거, 도메인 패턴(VO/정적 팩토리/Enum STRING) 정착, ADR 5장으로 면접 답변지 토대 구축.
+테스트: docker compose up -d / ./gradlew bootRun(V1+V2 적용) / contextLoads 통과.
+후속: Step 4 회원가입 API.
+
 ### Q1~Q7 정답 (참고용)
 - **Q1**: `postgres:16`
 - **Q2**: `POSTGRES_DB/USER/PASSWORD: minipay` (3종 모두)
@@ -104,22 +209,17 @@
 
 ## ▶️ 사용자가 "다음 진행 상황 알려줘"라고 하면
 
-**현재 단계 기준 다음 액션**:
+**현재 단계 기준 다음 액션** (2026-05-11 기준):
 
-### 케이스 A — 사용자가 `bootRun` 실행 결과를 들고 옴
-1. Flyway 로그에서 `Successfully applied 1 migration` 확인
-2. `\dt` 결과로 4개 테이블 (users/accounts/transactions/flyway_schema_history) 검증
-3. 통과하면 Step 2 [x] 처리 → Step 3 (엔티티) 진입 안내
-   - 자바 타입 강조: `private BigDecimal balance;`, `private OffsetDateTime createdAt;`
-   - 도메인 메서드의 `BigDecimal.add/subtract`, `compareTo` 사용 패턴 안내
+### 케이스 A — 바로 이어서 Step 3 마무리 (가장 가능성 높음)
+1. 컴파일: `.\gradlew compileJava` → BUILD SUCCESSFUL
+2. (선택) DB 띄운 상태에서 `.\gradlew build` → 통합 검증
+3. 머지 흐름: add/commit/push/checkout main/merge/push (머지 설명은 위 2026-05-04 요약 참고)
+4. Step 4 회원가입 API 진입
 
-### 케이스 B — "다음" 만 옴
-1. `bootRun` 실행 결과부터 공유 요청
-2. 받으면 케이스 A로
-
-### 케이스 C — "Step 2 끝, 바로 Step 3 갈래"
-1. 검증 생략한 채로 Step 3 들어가면 ddl-auto: validate에서 타입 불일치 터질 위험 → 짧게 경고
-2. 사용자 의지면 진행
+### 케이스 B — "Step 4 회원가입 API 갈래"
+1. Step 3 미완 상태 짚기 (compileJava 미확인 + 머지 미실행)
+2. 그래도 진행 의지면 Step 4 안내
 
 ---
 
@@ -133,6 +233,56 @@
 ---
 
 ## 📚 학습 메모
+
+### 2026-05-08 — 디버깅 / 자바 기초 / JPA 연관관계
+
+#### 스택 트레이스 읽는 법
+- **`Caused by`를 거꾸로 읽는다** — 가장 안쪽(마지막)이 진짜 원인.
+- 위쪽은 도미노로 무너진 결과 — 보통 진단 가치 낮음.
+- 진단 순서: ① 맨 아래 `Caused by` ② 그 위 1~2단계 (어떤 모듈) ③ 맨 위는 무시해도 됨.
+
+#### SQLState 에러 코드 (ANSI 표준 5자리)
+- `08xxx` — Connection Exception (연결 문제)
+- `23xxx` — Integrity Constraint Violation (UNIQUE/FK 위반)
+- `42xxx` — Syntax Error or Access Rule
+- `40xxx` — Transaction Rollback (데드락 등)
+- DB 종류 무관하게 의미 동일. `Error Code`는 벤더별이라 PostgreSQL은 거의 0.
+
+#### `== null` vs `.isBlank()`
+- `== null` — 변수가 객체를 가리키지 않음 (참조 자체 없음).
+- `.isBlank()` — 객체는 있지만 내용이 공백뿐 (Java 11+).
+- **null이 들어간 변수에 메서드 호출 = NPE**. 단순히 false가 안 나오는 게 아니라 **흐름 자체 중단**.
+- `||` 단락 평가로 **null 체크 먼저** 와야 함.
+
+#### `AccessLevel` (Lombok) 6종
+- `PUBLIC` / `PROTECTED` / `PACKAGE` / `PRIVATE` / `MODULE` (JPMS) / `NONE` (생성 차단)
+- 자바 접근 제어 4종 + Lombok 특수값 2개.
+- 우리 프로젝트가 `PROTECTED`를 쓰는 이유:
+  - JPA 프록시(LAZY)는 자식 클래스로 동작 → PROTECTED 통과
+  - 외부 코드는 `new User()` 차단 → 정적 팩토리 강제
+  - PRIVATE은 JPA 프록시도 막혀 부적합, PUBLIC은 외부 차단 못 함.
+
+#### `@ManyToOne(fetch = FetchType.LAZY)` 의미
+- **`@ManyToOne`** — N:1 관계 (Transaction 여럿 ↔ Account 하나).
+- **`FetchType.LAZY`** — 실제 접근 시에만 추가 쿼리. 안 쓰면 EAGER가 기본.
+- 단일(One) 쪽 관계는 **JPA 기본이 EAGER** → 항상 명시적으로 LAZY 박는 게 실무 룰.
+- N+1 함정: 거래 100건 + EAGER → 101쿼리. 회피하려면 `JOIN FETCH` 명시.
+- 우리는 `open-in-view: false` + 애그리거트 경계 → **ID 참조로 회피** (ADR 0005).
+
+#### 정적 팩토리 패턴 5단계
+1. **검증** — null/blank/범위 체크 (불변식 보호)
+2. **인스턴스** — `new User()` (protected 기본 생성자, 같은 클래스 내라 호출 가능)
+3. **필드 세팅** — setter 없으니 같은 클래스 안에서 `user.email = ...` 직접 대입
+4. **시간/기본값** — `OffsetDateTime.now()` (도메인 책임, DB DEFAULT에만 의존하지 않음)
+5. **반환** — 검증·세팅 끝난 인스턴스
+
+#### Money VO 두 번 임베딩 (`@AttributeOverrides`)
+- 한 엔티티에 Money 필드 두 개 이상이면 컬럼명 충돌 위험.
+- `@AttributeOverrides`로 각자 컬럼명 분리: `amount` → `amount_amount`/`amount_currency`, `balanceAfter` → `balance_after_amount`/`balance_after_currency`.
+- Account는 Money 하나(balance)뿐이라 이 패턴이 안 보였음. Transaction이 첫 적용.
+- V2 마이그레이션의 컬럼명과 정확히 일치 필수 (`ddl-auto: validate`).
+
+---
 
 ### 2026-05-04 — 자바 패키지 / enum 기초
 

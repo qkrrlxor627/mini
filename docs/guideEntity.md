@@ -233,18 +233,85 @@ CREATE TABLE users (
 
 **클래스 어노테이션**: `@Entity`, `@Table(name="users")`, `@Getter`, `@NoArgsConstructor(access = PROTECTED)`.
 
-**정적 팩토리 시그니처**:
+**정적 팩토리 — 직접 작성 가이드**
+
+**시그니처**:
 ```java
 public static User register(String email, String passwordHash,
                             String name, String pinHash) {
-    // null 검증 → 인스턴스 생성 → 필드 세팅 → createdAt = OffsetDateTime.now() → return
+    ...
 }
 ```
 
-> 이름은 `register` (가입한다) 또는 `signUp`. 단순 변환이면 `of`였겠지만, **가입은 도메인 행위라 동사형**이 맞다.
+> 이름은 `register` (가입한다) 또는 `signUp`. 단순 변환이면 `of`지만, **가입은 도메인 행위라 동사형**이 맞다.
 
-**주의**:
-- 비밀번호/핀의 **해싱은 서비스 레이어**에서 함. 엔티티는 이미 해시된 값을 받는다 → 필드명도 `password`가 아니라 `passwordHash`
+**메서드 안에 들어가야 할 것** (순서대로):
+
+1. **null/blank 검증**
+   - 4개 파라미터 전부 null이거나 빈 문자열이면 `IllegalArgumentException`
+   - email은 형식 정밀 검증까지 할 필요 없음 (컨트롤러 레이어 `@Email`이 담당) — 엔티티는 "도메인 불변식"만 본다
+   - 왜? 엔티티는 **잘못된 상태로 만들어질 수 없어야** 함. 검증을 빼먹으면 setter 금지·protected 생성자가 무의미해짐
+
+2. **인스턴스 생성**
+   - `User user = new User();`
+   - 생성자가 `protected`인데 호출 되는 이유 → **같은 클래스 안이라서**. 외부에서만 차단
+
+3. **필드 세팅**
+   - `user.email = email;` ... 4개 필드
+   - setter 없어도 같은 클래스 안에서는 `private` 필드 직접 접근 가능
+
+4. **`createdAt` 채우기**
+   - `user.createdAt = OffsetDateTime.now();`
+   - 룰: 생성 시각은 **정적 팩토리 안에서만** 박힘 (CLAUDE.md 컨벤션)
+   - `id`는 비워둠 → DB가 INSERT 시 자동 부여 (`@GeneratedValue(IDENTITY)`)
+
+5. **return**
+   - `return user;`
+
+**스켈레톤 (빈칸 채우기)**:
+```java
+public static User register(String email, String passwordHash,
+                            String name, String pinHash) {
+    // 1. 검증
+    if (___ == null || ___.isBlank()) {
+        throw new IllegalArgumentException("email은 필수입니다");
+    }
+    // passwordHash, name, pinHash도 동일하게 4번 반복
+    // (반복이 거슬리면 private static void requireNotBlank(String, String) 헬퍼로 추출 OK)
+
+    // 2. 인스턴스
+    User user = new ___();
+
+    // 3. 필드 세팅
+    user.email = ___;
+    user.passwordHash = ___;
+    user.name = ___;
+    user.pinHash = ___;
+
+    // 4. 생성 시각
+    user.createdAt = ___;
+
+    // 5. 반환
+    return ___;
+}
+```
+
+**`Account.openFor`와 다른 점**:
+- `Account`: 인자 2개(`userId`, `currency`) → 그중 `balance`는 내부에서 `Money.zero(currency)`로 생성
+- `User`: 인자 4개 전부 외부에서 받음. 해싱은 도메인 외 작업이라 **서비스 레이어가 해시값을 만들어 넘긴다**
+- 그래서 `User.register`는 더 단순: **검증 4 + 세팅 4 + createdAt + return**
+
+**자주 막히는 지점**:
+- Q. 비밀번호 평문을 받아서 안에서 해싱하면 안 돼?
+  → ❌. 엔티티는 도메인 외 I/O(해싱 라이브러리 호출) 금지. 서비스 레이어가 `BCrypt.hash(plain)` 후 결과를 넘긴다. 그래서 필드명도 `password`가 아니라 **`passwordHash`**.
+- Q. 검증을 생성자에 넣으면?
+  → ❌. JPA가 DB에서 꺼낼 때 리플렉션으로 기본 생성자를 부르는데, 거기서 검증이 터지면 조회만 해도 예외. **정적 팩토리에서만**.
+- Q. `id`를 인자로 받아야 하나?
+  → ❌. DB가 INSERT 시 자동 부여. 자바 쪽은 null인 채로 save → JPA가 채워줌.
+- Q. `new User()` 하면 IDE가 빨간 줄 안 그어?
+  → 같은 클래스 내부 호출이라 OK. `UserService` 같은 외부에서 `new User()` 하면 그때 차단됨.
+
+**주의** (정적 팩토리 외):
 - 도메인 메서드는 지금 단계에선 정적 팩토리 하나면 충분. 비밀번호 변경·핀 변경은 Step 4+에서 추가
 
 ---

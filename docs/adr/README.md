@@ -38,9 +38,10 @@ Proposed | Accepted | Deprecated | Superseded by ADR-XXXX
 
 | 번호 | 제목 | Status | Step |
 |---|---|---|---|
-| 0001 | Money Value Object 도입 | (작성 예정) | 3 |
-| 0002 | Enum + EnumType.STRING 매핑 | (작성 예정) | 3 |
-| 0003 | 정적 팩토리 메서드 vs Builder | (작성 예정) | 3 |
-| 0004 | Flyway 단방향 마이그레이션 정책 | (작성 예정) | 3 |
+| [0001](0001-money-value-object.md) | Money Value Object 도입 | Accepted | 3 |
+| [0002](0002-enum-string-mapping.md) | Enum + EnumType.STRING 매핑 | Accepted | 3 |
+| [0003](0003-static-factory-vs-builder.md) | 정적 팩토리 메서드 vs Builder | Accepted | 3 |
+| [0004](0004-flyway-forward-only.md) | Flyway 단방향 마이그레이션 정책 | Accepted | 3 |
+| [0005](0005-transaction-account-reference-by-id.md) | Transaction은 Account를 ID로 참조 | Accepted | 3 |
 
 > ADR은 Step별 코드 작성 후 채움. 코드를 만져보고 나서야 트레이드오프가 진짜로 보이기 때문.
