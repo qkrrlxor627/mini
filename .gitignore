@@ -51,3 +51,8 @@ application-local.yaml
 application-secret.yml
 application-secret.yaml
 
+### Local logs / scratch ###
+*.log
+.tmp_*
+.tmp/
+

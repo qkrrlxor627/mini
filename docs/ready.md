@@ -17,15 +17,15 @@
 | 거래 | `Transaction` | 잔액에 영향을 미치는 한 건의 사건 (충전/결제) |
 | 금액 | `Money` | `(amount, currency)` 쌍의 값 객체 (VO) |
 | 통화 | `Currency` | ISO 4217 코드. 현재 `KRW`만 |
-| 거래유형 | `TransactionType` | `CHARGE`(충전), `PAYMENT`(결제) |
+| 거래유형 | `TransactionType` | `CHARGE`(충전), `PAYMENT`(결제), `TRANSFER`(이체) |
 | 거래상태 | `TransactionStatus` | `SUCCESS`, `FAILED` (필요 시 `PENDING` 추가) |
 | 가맹점 | `merchantId` | 결제 받는 외부 식별자 (자체 엔티티 X, 문자열 보관) |
 | 멱등키 | `idempotencyKey` | 같은 요청 중복 처리 방지용 클라이언트 발급 ID |
+| 상대 계좌 | `counterpartyAccountId` | 이체 수신자 계좌. `TRANSFER`만 NOT NULL, 그 외 NULL (DB CHECK) |
 | 잔액 | `balance` | `Account.balanceMoney` — 음수 금지(DB CHECK) |
 | 결제 토큰 | `JWT` | 인증·인가용 액세스 토큰. 1시간 만료 |
 
 ### ❌ 이번 버전에 안 넣을 것 (의도적으로 제외)
-- 송금(P2P) — 회원 간 이체
 - 환불/취소 — `Transaction` 역연산
 - 다중 통화/환전 — `Currency` enum은 확장만 열어두고 사용은 KRW로 고정
 - 실명인증, 카드/은행 연동, OAuth 소셜 로그인
@@ -43,16 +43,17 @@
 2. 사용자가 이메일·비밀번호로 **로그인**하고 JWT를 받는다
 3. 사용자가 본인 계좌에 **잔액을 충전**한다 (외부 결제 수단은 가짜로 가정)
 4. 사용자가 **가맹점에 결제**한다 (잔액 차감, 멱등키 필수)
-5. 사용자가 본인의 **거래내역을 조회**한다 (페이지네이션, 최신순)
-6. 시스템이 **잔액보다 큰 결제를 거부**한다 (`InsufficientBalanceException`)
-7. 시스템이 **동일 멱등키 재요청을 한 번만 처리**하고 같은 응답을 반환한다
-8. 시스템이 **동시 결제 요청에서 잔액 정합성을 보장**한다 (비관적 락)
+5. 사용자가 본인의 **거래내역을 조회**한다 (페이지네이션, 최신순) — 송금자/수신자 양쪽 시점 모두 포함
+6. 시스템이 **잔액보다 큰 결제/이체를 거부**한다 (`InsufficientBalanceException`)
+7. 시스템이 **동일 멱등키 재요청을 한 번만 처리**하고 같은 응답을 반환한다 (결제·이체 공통)
+8. 시스템이 **동시 결제/이체 요청에서 잔액 정합성을 보장**한다 (비관적 락)
+9. 사용자가 **다른 회원에게 이체**한다 (송금자 잔액 차감 + 수신자 잔액 증가, 멱등키 필수, 비관적 락)
 
 ### Step → 유스케이스 매핑
 - Step 4 → ①
 - Step 5·6 → ②
 - Step 7 → ③·⑥
-- Step 8 → ④·⑥·⑦
+- Step 8 → ④·⑥·⑦·⑨ (결제 + 이체. 두 계정 동시 락 패턴은 이체에서 등장)
 - Step 9 → ⑤
 - Step 10 → ⑦·⑧ (통합 테스트)
 
@@ -60,7 +61,7 @@
 
 ## 3. ERD (Entity Relationship Diagram)
 
-`V1__init.sql` + `V2__money_value_object.sql` 기준 현재 스키마.
+`V1__init.sql` + `V2__money_value_object.sql` + `V3__transfer.sql` 기준 현재 스키마.
 
 ```
 users (1) ───── (1) accounts (1) ───── (N) transactions
@@ -70,6 +71,7 @@ users (1) ───── (1) accounts (1) ───── (N) transactions
 erDiagram
     users ||--|| accounts : owns
     accounts ||--o{ transactions : has
+    accounts ||--o{ transactions : receives
 
     users {
         BIGSERIAL id PK
@@ -89,6 +91,7 @@ erDiagram
     transactions {
         BIGSERIAL id PK
         BIGINT account_id FK
+        BIGINT counterparty_account_id FK
         VARCHAR type
         NUMERIC amount_amount
         VARCHAR amount_currency
@@ -108,7 +111,7 @@ erDiagram
 | 시간 타입 | `TIMESTAMPTZ` + `OffsetDateTime` | 시차/서머타임/글로벌 확장 대비 |
 | Money 분할 | `(amount, currency)` 두 컬럼 | `@Embeddable` 매핑. JSON 한 컬럼은 인덱싱·집계 곤란 |
 | User-Account | 1:1 (FK + UNIQUE) | 다계좌는 안 넣을 것에 명시 |
-| 거래 표현 | 단일 행 + `type` enum | 송금 없음 → 복식부기 불필요 |
+| 거래 표현 | 단일 행 + `type` enum + (TRANSFER 시) `counterparty_account_id` | 이체 추가됐지만 복식부기는 학습 범위 초과 → 송금자 시점 1행 + 수신자는 역조회 (ADR 0006) |
 | 멱등키 | `transactions.idempotency_key UNIQUE` | DB UNIQUE = 최후 방어선. 1차 방어는 Redis SETNX |
 | 삭제 정책 | 물리 삭제 (현재 정책 없음) | 거래는 어차피 영구 보관, soft delete 도입 시점은 회원 탈퇴 기능 들어올 때 |
 | 인덱스 | `idx_transactions_account_id_created_at` | 거래내역 조회 = `WHERE account_id=? ORDER BY created_at DESC` |
@@ -116,6 +119,7 @@ erDiagram
 ### 현재 ERD에 빠진 것 (Step 진행하며 추가 검토)
 - `transactions.user_id` 비정규화? — 현재는 `account_id`만. 조회 성능 문제 생기면 ADR 작성 후 추가
 - `transactions.completed_at` — 상태 전이가 들어오면 필요
+- 이체 시 **수신자 balance_after** — 송금자 시점 1행만 기록하므로 수신자 잔액 추적은 별도 쿼리(`accounts` 직접 또는 수신자 시점 최신 거래). 비정규화 필요해지면 ADR 0006 재검토 신호.
 
 ---
 
@@ -129,16 +133,19 @@ erDiagram
 2. POST /api/v1/auth/login         → 200 + JWT
 3. POST /api/v1/accounts/charge    → 200 + 잔액 10,000원
 4. POST /api/v1/payments           → 200 + 잔액 8,000원 (2,000원 결제)
-5. GET  /api/v1/transactions       → 200 + 거래 2건 (최신순)
+5. POST /api/v1/transfers          → 200 + 송금자 잔액 5,000원 (3,000원 이체 → 수신자 잔액 +3,000원)
+6. GET  /api/v1/transactions       → 200 + 거래 3건 (최신순, 송금자/수신자 양쪽 시점 포함)
 
 [엣지 케이스]
-6. POST /api/v1/payments (잔액 초과)        → 400 INSUFFICIENT_BALANCE
-7. POST /api/v1/payments (동일 Idempotency-Key 재전송) → 첫 응답과 동일 결과, 거래는 1건
-8. POST /api/v1/payments (JWT 누락)         → 401
-9. POST /api/v1/auth/signup (중복 이메일)   → 409 DUPLICATE_EMAIL
+7. POST /api/v1/payments (잔액 초과)        → 400 INSUFFICIENT_BALANCE
+8. POST /api/v1/payments (동일 Idempotency-Key 재전송) → 첫 응답과 동일 결과, 거래는 1건
+9. POST /api/v1/transfers (자기 자신에게 이체) → 400 INVALID_TRANSFER_TARGET
+10. POST /api/v1/transfers (잔액 초과)         → 400 INSUFFICIENT_BALANCE
+11. POST /api/v1/payments (JWT 누락)        → 401
+12. POST /api/v1/auth/signup (중복 이메일)  → 409 DUPLICATE_EMAIL
 ```
 
-이 9개를 Swagger에서 실제로 통과시키는 게 **Step 11 = 프로젝트 종결 조건**.
+이 12개를 Swagger에서 실제로 통과시키는 게 **Step 11 = 프로젝트 종결 조건**.
 
 ---
 
@@ -210,6 +217,34 @@ erDiagram
 - `400` `MISSING_IDEMPOTENCY_KEY`
 - `409` `IDEMPOTENCY_KEY_CONFLICT` (같은 키로 다른 본문 → 충돌)
 - 같은 키 + 같은 본문 → `200`에 첫 응답 그대로 (idempotent replay)
+
+---
+
+### Transfers
+
+#### `POST /api/v1/transfers` — 회원 간 이체
+**Headers**
+- `Authorization: Bearer <jwt>`
+- `Idempotency-Key: <uuid>` ⭐ 필수
+
+**Request**
+```json
+{ "counterpartyAccountId": 42, "amount": 3000, "currency": "KRW" }
+```
+- `counterpartyAccountId`: `@NotNull`, 본인 계좌 ID와 다름 (서비스 검증)
+- `amount`: `@DecimalMin("0.0001")`
+- `currency`: `@NotBlank`, 송금자/수신자 계좌 통화와 모두 일치 (서비스 검증)
+
+**Response**
+- `200` `{ "transactionId", "balance": { "amount": 5000, "currency": "KRW" }, "status": "SUCCESS" }` — 응답의 balance는 송금자 차감 후 잔액
+- `400` `INSUFFICIENT_BALANCE` — 송금자 잔액 부족
+- `400` `INVALID_TRANSFER_TARGET` — 자기 자신에게 이체 시도 또는 통화 불일치
+- `400` `MISSING_IDEMPOTENCY_KEY`
+- `404` `ACCOUNT_NOT_FOUND` — 수신자 계좌 없음
+- `409` `IDEMPOTENCY_KEY_CONFLICT`
+- 같은 키 + 같은 본문 → `200` 첫 응답 그대로 (결제와 동일 패턴)
+
+> **Step 8 결정 사항** (구현 시 박을 것): 송금자/수신자 양쪽에 `PESSIMISTIC_WRITE`. 데드락 회피 위해 `account_id` 오름차순으로 락 획득.
 
 ---
 
@@ -291,20 +326,26 @@ sequenceDiagram
 | 컬럼명 | 타입 | NULL | 기본값 | 설명 | 비고 |
 |---|---|---|---|---|---|
 | `id` | BIGSERIAL | N | auto | PK | |
-| `account_id` | BIGINT | N | - | FK → `accounts.id` | 인덱스 |
-| `type` | VARCHAR(20) | N | - | 거래유형 | `CHARGE` / `PAYMENT` |
+| `account_id` | BIGINT | N | - | FK → `accounts.id` (송금자/소유자) | 인덱스 |
+| `counterparty_account_id` | BIGINT | Y | NULL | FK → `accounts.id` (이체 수신자) | `TRANSFER`만 NOT NULL (CHECK), 부분 인덱스 |
+| `type` | VARCHAR(20) | N | - | 거래유형 | `CHARGE` / `PAYMENT` / `TRANSFER` |
 | `amount_amount` | NUMERIC(19,4) | N | - | 거래 금액 | 양수 |
 | `amount_currency` | VARCHAR(3) | N | `'KRW'` | ISO 4217 | |
-| `balance_after_amount` | NUMERIC(19,4) | N | - | 거래 후 잔액 스냅샷 | 감사·정합성 검증용 |
+| `balance_after_amount` | NUMERIC(19,4) | N | - | 거래 후 잔액 스냅샷 | 감사·정합성 검증용. `TRANSFER`는 송금자 시점 |
 | `balance_after_currency` | VARCHAR(3) | N | `'KRW'` | | |
 | `merchant_id` | VARCHAR(50) | Y | NULL | 가맹점 식별자 | `PAYMENT`만 사용 |
-| `idempotency_key` | VARCHAR(100) | Y | NULL | 멱등키 | UNIQUE — DB 최후 방어선 |
+| `idempotency_key` | VARCHAR(100) | Y | NULL | 멱등키 | UNIQUE — DB 최후 방어선. `PAYMENT`/`TRANSFER` 필수 |
 | `status` | VARCHAR(20) | N | - | 거래상태 | `SUCCESS` / `FAILED` |
 | `created_at` | TIMESTAMPTZ | N | `now()` | 생성 시각 | |
 
 **인덱스**
-- `idx_transactions_account_id_created_at` (`account_id`, `created_at DESC`) — 거래내역 조회용
+- `idx_transactions_account_id_created_at` (`account_id`, `created_at DESC`) — 송금자/소유자 시점 거래내역
+- `idx_transactions_counterparty_id_created_at` (`counterparty_account_id`, `created_at DESC`) WHERE `counterparty_account_id IS NOT NULL` — 수신자 시점 이체내역 (부분 인덱스)
 - UNIQUE on `idempotency_key`
+
+**CHECK 제약**
+- `transactions_counterparty_consistency` — `type='TRANSFER'`만 `counterparty_account_id` NOT NULL, 그 외는 NULL
+- `transactions_counterparty_not_self` — `counterparty_account_id <> account_id` (자기 자신 이체 금지)
 
 ---
 

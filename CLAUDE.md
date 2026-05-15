@@ -62,15 +62,16 @@
 
 ## 동시성 (Step 7+)
 
-- 잔액 변경(충전·결제)은 **비관적 락** 디폴트: `@Lock(LockModeType.PESSIMISTIC_WRITE)`.
+- 잔액 변경(충전·결제·이체)은 **비관적 락** 디폴트: `@Lock(LockModeType.PESSIMISTIC_WRITE)`.
 - 사유: 재시도 부적절한 도메인(돈) + 충돌 빈번 + 트랜잭션 짧음 → 비관적 락이 적합.
+- **이체는 두 계정 락** — 송금자/수신자 동시 `PESSIMISTIC_WRITE`. 데드락 회피용으로 `account_id` 오름차순 정렬 후 락 획득 (ADR 0006).
 - 락 잡고 외부 호출 금지 (위 트랜잭션 룰과 동일).
 
 ## 멱등성 (Step 8+)
 
-- 결제 API는 `Idempotency-Key` 헤더 필수.
+- 결제·이체 API는 `Idempotency-Key` 헤더 필수.
 - **Redis SETNX(빠른 1차) + DB UNIQUE(최후 방어선)** 이중 방어.
-- Redis 장애 시 결제는 살아있어야 함 → DB UNIQUE가 최종 차단.
+- Redis 장애 시 결제/이체는 살아있어야 함 → DB UNIQUE가 최종 차단.
 - TTL 10분 디폴트.
 
 ## 에러 핸들링
@@ -96,6 +97,67 @@
 - `com.minipay.security` — JWT, SecurityConfig
 - `com.minipay.config` — 그 외 Spring Configuration
 - `com.minipay.exception` — `@ControllerAdvice` 등 횡단 관심사
+
+## 코드 리뷰 체크리스트
+
+> PR/커밋 리뷰 시 "ADR과 컨벤션이 코드에 일관되게 반영됐는지" 검증. 각 항목은 위반 발견 시 거절/수정 사유. 결정 근거가 궁금하면 태그된 ADR로 이동.
+
+### 도메인 모델 / 금액
+- `[ADR-0001]` `BigDecimal` 직접 비교(`==`, `equals`)/산술 발견 시 거절 — `Money` 메서드(`isLessThan`, `add`, `subtract`)만 허용. Money 외부에 `BigDecimal` 누출 금지.
+- `[ADR-0001]` `Money` 산술 시 `requireSameCurrency` 호출 흐름 확인 — 통화 다르면 즉시 예외.
+- `[ADR-0001]` scale 4 / HALF_EVEN 보장 — Money 생성 경로에서 `setScale` + DB `NUMERIC(19,4)` + 엔티티 `precision=19, scale=4` 일관 확인.
+- `[ADR-0002]` enum 필드에 `@Enumerated(EnumType.STRING)` 누락 — 기본값 ORDINAL 위험. 무조건 명시.
+- `[ADR-0002]` enum 선언 순서 변경 PR — STRING 매핑이라 DB는 안전하지만 `values()` 순회/리포트 정렬 의존성 검토 요구.
+- `[ADR-0003]` setter / Lombok `@Builder` / `@AllArgsConstructor` 신설 — 전부 거절. 정적 팩토리 메서드 + `@NoArgsConstructor(PROTECTED)`만.
+- `[ADR-0003]` 정적 팩토리 5단계 순서(검증 → `new` → 필드 → 시간 → return) 누락 — 특히 검증 누락 시 부분 채움 객체 누수.
+- `[ADR-0003]` 시간 처리에 `LocalDateTime` 사용 — `OffsetDateTime` 강제 (DB `TIMESTAMPTZ` 정합).
+- `[ADR-0005]` Transaction/Account가 다른 애그리거트를 `@ManyToOne` 객체 참조 — ID 참조(`Long ...Id`)만. open-in-view false + N+1 회피.
+- `[ADR-0006]` 이체 거래에서 송금자/수신자를 별도 행 또는 별도 테이블로 분리 PR — 단일 행 + `counterparty_account_id` 만 허용. 차변/대변 분리 필요 시 ADR 재검토 후 도입.
+
+### JPA / 매핑
+- `@Embedded` Money 컬럼명이 V_n 마이그레이션과 미스매치 — `@AttributeOverrides`로 명시. `ddl-auto: validate`라 부팅 시 즉시 터짐.
+- `@Column(updatable = false)` 누락 (`createdAt` 등 불변 컬럼) — 사후 UPDATE로 감사 추적 깨짐.
+- 도메인 메서드 안에서 외부 I/O(HTTP, 메일, Redis) 호출 — 영속성 외 책임은 서비스로 이전 요구.
+- 조회 메서드에 `@Transactional(readOnly = true)` 누락 — 성능·의도 명시.
+
+### 마이그레이션
+- `[ADR-0004]` V1 수정 PR — 즉시 거절. 체크섬 깨짐 → CI/협업자 환경 동기화 실패.
+- 파일명 `V<숫자>__<설명>.sql` 규칙(더블 언더스코어) 위반.
+- DB CHECK / UNIQUE / FK 제약 누락 — 자바 검증의 최후 방어선. 신규 컬럼이면 V_n에 제약 명시.
+
+### 트랜잭션 / 동시성 (Step 7+)
+- `@Transactional` 메서드 안 외부 I/O — 락 점유 시간↑, 롤백 어려움. AFTER_COMMIT 이벤트로 분리 요구.
+- 잔액 변경(충전/결제/이체)에 `@Lock(PESSIMISTIC_WRITE)` 누락 — 동시 결제 시 잔액 음수.
+- 이체에서 송금자/수신자 락 획득 순서 미정렬 — `account_id` 오름차순 강제. 미정렬 시 데드락.
+- 락 잡고 외부 호출 — 위 룰과 동일하게 거절.
+
+### 멱등성 (Step 8+)
+- 결제·이체 API에 `Idempotency-Key` 헤더 검증 누락 — 중복 결제/이체.
+- Redis SETNX만 있고 DB `UNIQUE(idempotency_key)` 없음 — 이중 방어 무력화.
+- 멱등 키 TTL 누락 — 키 무한 누적.
+
+### 보안 (Step 5~6+)
+- 비밀번호/PIN 평문 저장 또는 평문 비교 — BCrypt 해싱 후 `passwordHash`/`pinHash`에만.
+- 인증 실패에서 "이메일 없음" vs "비번 틀림" 구분 응답 — `InvalidCredentialsException`으로 통일, 계정 존재 노출 금지.
+- 로그에 JWT 토큰/세션 ID/PIN/평문 비번 출력 — 즉시 거절.
+
+### DTO / API
+- 컨트롤러에서 엔티티 직접 리턴 — DTO `record`로 변환 강제. 내부 구조/순환 직렬화/N+1 회피.
+- DTO에 Lombok `@Builder` — Java `record`로 충분, 거절.
+- 요청 DTO에 `jakarta.validation` 어노테이션(`@Email`, `@NotBlank`, `@Size`, `@Pattern`) 누락.
+
+### 에러
+- 도메인 예외가 HTTP 코드를 알고 있음(서비스/도메인에서 `ResponseEntity` 반환 등) — `@ControllerAdvice`에서 일괄 매핑 강제.
+- 도메인 예외가 익명 `RuntimeException` 또는 `IllegalStateException` 일반화 — 명명 클래스(`InsufficientBalanceException` 등) 사용.
+
+### 테스트
+- 동시성/멱등성 통합 테스트에 `@Transactional` — 롤백 자동화가 동시성 깸. 제거 요구.
+- 도메인 핵심 로직(잔액 차감 등)을 mock으로 검증 — 가능하면 실제 동작(`@SpringBootTest`)으로.
+
+### 주석 / 가독성
+- WHAT 주석(코드 한국어 번역) — 삭제 권고. 잘 지은 이름이 WHAT을 대신함.
+- "issue #N 때문에 추가", "X 호출자용" 같은 호출자/티켓 언급 — PR 설명으로 이전. 코드는 진화에 맡김.
+- 좋은 주석만 통과: 도메인 불변식, 숨은 제약, 특정 버그 우회, 독자가 놀랄 동작.
 
 ## 학습 진행 룰
 

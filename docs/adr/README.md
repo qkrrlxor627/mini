@@ -43,5 +43,7 @@ Proposed | Accepted | Deprecated | Superseded by ADR-XXXX
 | [0003](0003-static-factory-vs-builder.md) | 정적 팩토리 메서드 vs Builder | Accepted | 3 |
 | [0004](0004-flyway-forward-only.md) | Flyway 단방향 마이그레이션 정책 | Accepted | 3 |
 | [0005](0005-transaction-account-reference-by-id.md) | Transaction은 Account를 ID로 참조 | Accepted | 3 |
+| [0006](0006-transfer-modeling.md) | 이체(TRANSFER) 거래는 단일 행으로 표현 | Accepted | 3 |
+| [0007](0007-auth-and-error-foundation.md) | 인증·에러 핸들링 기반 (BCrypt + GlobalExceptionHandler + 임시 SecurityConfig) | Accepted | 4 |
 
 > ADR은 Step별 코드 작성 후 채움. 코드를 만져보고 나서야 트레이드오프가 진짜로 보이기 때문.

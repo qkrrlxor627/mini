@@ -1,7 +1,7 @@
 package com.minipay.domain;
 
 public enum TransactionType {
-    CHARGE, PAYMENT
+    CHARGE, PAYMENT, TRANSFER
 }
 
 /*
@@ -33,4 +33,9 @@ public enum TransactionType {
  *    - WHY만 적되, 명백하면 생략
  *    - 코드만 봐선 알 수 없는 "숨은 제약/이유"만 남길 것
  *        예) // 결제 정산 보고서가 enum 순서로 정렬되므로 바꾸면 리포트 깨짐
+ *
+ * 4. 2026-05-14 — TRANSFER 추가
+ *    이체 기능 도입으로 enum 값 3개로 확장. STRING 매핑이라 순서 영향 없음.
+ *    DB CHECK 제약(transactions_counterparty_consistency)이 TRANSFER만 counterparty
+ *    필수로 강제 → enum 확장과 스키마 제약이 한 쌍으로 묶임. 관련 ADR 0006.
  */

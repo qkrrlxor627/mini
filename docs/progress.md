@@ -1,16 +1,16 @@
 # Mini Pay 학습 진행 상황
 
-> **마지막 업데이트**: 2026-05-11
+> **마지막 업데이트**: 2026-05-15
 > **가이드**: `docs/mini-pay-guide.md`
 > **컨벤션**: `CLAUDE.md` (프로젝트 루트)
 > **ADR**: `docs/adr/`
-> **플랜**: `C:\Users\SSAFY\.claude\plans\goofy-launching-tiger.md` (현재)
+> **플랜**: `C:\Users\SSAFY\.claude\plans\gentle-snuggling-hartmanis.md` (Step 4)
 
 ---
 
 ## 🎯 현재 위치
 
-**Step 3 마무리 직전 — 엔티티 본문 모두 완성. `compileJava` 확인 → 머지만 남음.**
+**Step 4 회원가입 API 코드 작성 완료. `compileJava` 통과. `bootRun` + 수동 검증(curl 시나리오 3종) 남음.**
 
 ### 완료
 - 사전 인프라: `CLAUDE.md` + `docs/adr/README.md` 작성
@@ -28,6 +28,11 @@
   - 0003 — 정적 팩토리 메서드 vs Builder
   - 0004 — Flyway 단방향 마이그레이션 정책
   - 0005 — Transaction은 Account를 ID로 참조
+- **ADR 0006 작성 + 이체 기능 추가 (2026-05-14)**:
+  - 0006 — 이체(TRANSFER) 거래는 단일 행으로 표현 (counterparty_account_id 컬럼)
+  - V3__transfer.sql (counterparty 컬럼 + CHECK 2종 + 부분 인덱스)
+  - TransactionType.TRANSFER + Transaction.transfer() 정적 팩토리
+  - 문서 갱신: ready.md (송금 제외 해제 + ERD + 명세 + 테이블 스펙) / sql.md / CLAUDE.md (동시성·멱등성 룰 + 리뷰 체크리스트) / uShould.md (Step 8/9/10 + ADR 번호 0007~0010로 재정렬)
 - **학습 자산 문서 2종 추가 (2026-05-11)**:
   - `docs/uLearn.md` — 완성 시 보유할 학습 자산 인덱스(동시성/멱등성/도메인/JPA/보안/운영) + 면접 질문 매핑
   - `docs/uShould.md` — Step 4~11에서 채워야 할 산출물(패키지·파일 단위 30~40개) + ADR 0006~0009 후보
@@ -51,10 +56,10 @@
 - 진행 방식: Claude 샘플 → 사용자 따라 쓰기 + 주석 채점 워크플로우 병행
 
 ### 다음 액션 (다음 세션 시작 시)
-1. `.\gradlew compileJava` → BUILD SUCCESSFUL 확인
-2. (DB 띄운 상태에서) `.\gradlew build` → 통합 검증
-3. step-3-entities → main 머지 (머지 설명은 2026-05-04 대화 요약 참고)
-4. Step 4 회원가입 API 진입
+1. **검증 (남은 일)** — `docker compose ps`로 인프라 확인 → `.\gradlew build` (Hibernate validate 통과 확인) → `.\gradlew bootRun` 후 curl로 시나리오 4종 검증 (정상 가입 / 중복 / 검증 실패 / 보호 경로 401). 명령은 `C:\Users\SSAFY\.claude\plans\gentle-snuggling-hartmanis.md` "검증" 섹션 참고.
+2. 검증 통과 후 단일 커밋으로 step-3-entities 또는 신규 step-4 브랜치 정리 — 사용자가 결정.
+3. Step 5 진입 — Spring Security + JWT 본격 (SecurityConfig 확장 + JwtTokenProvider + JwtAuthenticationFilter)
+4. Step 8 진입 시 ADR 0006 재방문 — 두 계정 락 순서 정렬 규칙을 ADR 0011 후속으로 분리할지 결정
 
 ---
 
@@ -79,7 +84,7 @@
   - [x] V1__init.sql 작성 (NUMERIC(19,4) + TIMESTAMPTZ)
   - [x] sql.md (ERD Cloud용 MySQL 버전) 동기화
   - [x] `./gradlew bootRun`으로 마이그레이션 통과 확인 (2026-04-29 14:27)
-- [ ] **Step 3 — 엔티티 작성** ⬅️ 진행 중 (Transaction 빈칸 + 머지만 남음)
+- [ ] **Step 3 — 엔티티 작성** ⬅️ 진행 중 (이체 확장 + 빌드 검증 + 머지만 남음)
   - [x] V2__money_value_object.sql (Money VO 컬럼 분할)
   - [x] Currency / Money(VO) / Account / InsufficientBalanceException (샘플)
   - [x] TransactionType (CHARGE/PAYMENT)
@@ -88,9 +93,24 @@
   - [x] Transaction.java (스캐폴드 + charge/payment 본문 ✅, 1차 채점 통과)
   - [x] ADR 0001~0005 작성
   - [x] uLearn.md / uShould.md 작성
-  - [ ] `.\gradlew compileJava` BUILD SUCCESSFUL 확인
+  - [x] `.\gradlew clean compileJava` + `.\gradlew build` 모두 BUILD SUCCESSFUL ✅
+  - [x] step-3-entities 커밋 `b5ec888` 푸시 ✅
+  - [x] CLAUDE.md `## 코드 리뷰 체크리스트` 섹션 추가 (ADR 트레이서형, 30 항목)
+  - [x] **이체 기능 추가 (2026-05-14)** — V3 마이그레이션 + TransactionType.TRANSFER + Transaction.transfer() + ADR 0006
+  - [ ] 빌드 검증 (`.\gradlew clean compileJava` + `build`) — V3 적용 + Hibernate validate
   - [ ] step-3-entities → main 머지
-- [ ] Step 4 — 회원가입 API
+- [ ] **Step 4 — 회원가입 API** ⬅️ 진행 중 (코드 완료, 부팅+curl 검증 남음)
+  - [x] Repository 2개 (`UserRepository.existsByEmail`/`findByEmail`, `AccountRepository`)
+  - [x] DTO 3개 (`SignupRequest` 검증 4종, `SignupResponse.from(user)`, `ErrorResponse.of(code, msg)`)
+  - [x] `DuplicateEmailException` (RuntimeException 상속, 명명 클래스)
+  - [x] `GlobalExceptionHandler` 핸들러 4종 (Duplicate / Validation / IllegalArgument / fallback)
+  - [x] `SecurityConfig` Step 4 임시 (csrf disable + STATELESS + `/api/v1/auth/**` permitAll)
+  - [x] `AuthService.signup` (`@Transactional` + BCrypt + User+Account 같은 트랜잭션)
+  - [x] `AuthController` POST `/api/v1/auth/signup` (`@Valid` + 201)
+  - [x] ADR 0007 작성 + README 인덱스 갱신
+  - [x] `.\gradlew clean compileJava` BUILD SUCCESSFUL
+  - [ ] `.\gradlew build` (Hibernate validate, docker 떠야 함)
+  - [ ] `bootRun` + curl 시나리오 4종
 - [ ] Step 5 ⚠️ — Spring Security + JWT 필터
 - [ ] Step 6 — 로그인 API
 - [ ] Step 7 — 잔액 충전 API
@@ -112,7 +132,52 @@
 
 ## 💬 마지막 대화 요약
 
-### 2026-05-11 — 진행 점검 / Transaction.java 마무리
+### 2026-05-15 (오후) — Swagger 트러블슈팅 + uChoice.md 작성
+
+1. **Swagger 500 트러블슈팅** — `POST /api/v1/auth/signup` curl 4종 통과 후 Swagger UI 접속 시 `/api-docs`가 500.
+   - 진단: 응답 본문이 `INTERNAL_ERROR` 형식이라 우리 `GlobalExceptionHandler.handleUnexpected` fallback이 잡은 것 → 진짜 예외 정체 불명.
+   - 원인: `springdoc-openapi 2.6.0` + Spring Boot 3.5.14(Spring Framework 6.2) 호환성 깨짐.
+   - 픽스: `2.6.0 → 2.8.13` 업그레이드 + `GlobalExceptionHandler` fallback에 `@Slf4j` + `log.error("Unhandled exception", ex)` 영구 추가.
+   - 기록: `docs/swaggerTroubleShoot0515.md` 작성 (면접 답변지 Q1~Q5 포함).
+   - ADR 0007 사후 보강: Decision §4에 "fallback은 응답 가공해도 stacktrace는 반드시 `log.error`로 남긴다" 한 줄 + References에 트러블슈팅 문서 링크.
+2. **uChoice.md 작성** — "표준(Standard) vs 우리 결정(Decision)" 한 페이지 인덱스. Step 1~4 표준 채택 13건 + 의도적 일탈 11건 + Step 5~11 예상 일탈 8건 표로 정리. 면접 답변 Q1~Q5 포함. ADR 1~7의 분기점만 추출한 인덱스 역할.
+3. **다음** — Step 4 변경사항 커밋 → Step 5 plan mode 진입.
+
+### 2026-05-15 (오전) — Step 4 회원가입 API 코드 일괄 작성
+
+1. **현재 위치 확인** — 사용자가 "현재 만들어야 할 API 뭐가 있는지" 물음. Step 4~9 7개 API 정리 (signup/login/charge/payment/transfer/transactions). 진행은 Step 단위로 자르기로 합의.
+2. **Plan mode 진입** — `gentle-snuggling-hartmanis.md` plan 작성. Step 4만 집중. 결정사항 5종(BCrypt 디폴트 / AuthService 단일 / 임시 SecurityConfig / `{errorCode, message, timestamp}` 포맷 / KRW 고정)을 ADR 0007 한 장에 묶기로.
+3. **사용자 합의: API path는 `/api/v1/...`** (ready.md 따라). uShould.md `/api/...`는 차후 일치시키기로.
+4. **학습 Q&A 4종** (회원가입으로 만들어지는 것 / accounts.id vs user_id / JVM 역할 / Bean 정의):
+   - `users` 1행 + `accounts` 1행이 같은 트랜잭션에서 INSERT, BCrypt 형식 `$2a$10$...`, 응답엔 password/pin/createdAt 누출 X.
+   - `accounts.id` = 계좌 정체성, `accounts.user_id` = FK. 1:1 관계지만 책임 분리 + transactions가 account_id 참조해서 분리 필수.
+   - JVM = 자바 가상 머신. Spring 앱 1프로세스. Bean은 시작~종료까지 살고, 요청 객체는 GC.
+   - Bean = Spring이 관리(생성/보관/주입)하는 무상태 객체. 엔티티/DTO/VO는 Bean 아님.
+5. **사용자 승인 후 코드 일괄 작성**:
+   - 10 파일: `repository/{UserRepository,AccountRepository}.java`, `exception/{DuplicateEmailException,GlobalExceptionHandler}.java`, `dto/{SignupRequest,SignupResponse,ErrorResponse}.java`, `config/SecurityConfig.java`, `service/AuthService.java`, `controller/AuthController.java`
+   - SecurityConfig는 Spring Security 6 lambda DSL (`http.csrf(c -> c.disable())` 스타일)
+   - GlobalExceptionHandler는 `IllegalArgumentException`도 핸들링(엔티티 정적 팩토리에서 던짐)
+6. **빌드 검증** — `.\gradlew clean compileJava` BUILD SUCCESSFUL (18s). `.\gradlew build`는 Hibernate validate라 docker 인프라 떠 있어야 해서 사용자에게 위임.
+7. **ADR 0007 작성** — 5개 결정의 Rationale/Consequences/재검토 신호 정리. 면접 답변지로 활용 가능. README 인덱스 갱신.
+8. **남은 일** — `docker compose ps` 확인 → `bootRun` → curl 4종(정상/중복/검증실패/401) → 통과 시 커밋.
+
+### 2026-05-14 — 이체(TRANSFER) 기능 추가
+
+1. **현황 확인** — 사용자가 "이체 기능 들어있나" 물음. `TransactionType.java`는 `CHARGE, PAYMENT`만, `ready.md`에 "❌ 송금(P2P) — 회원 간 이체"가 의도적 제외로 박혀 있어 명시적으로 빠져있다고 답변.
+2. **추가 요청** — "이체 기능도 추가해주고, MD 추가해야 하면 추가해줘". Claude가 AskUserQuestion으로 3안(1행+counterparty / 2행+group / 별도 테이블) 비교 제안 → 사용자 거부 → 직접 결정 후 진행 요청.
+3. **워크플로우 메모** — 학습 프로젝트에서 기능 추가 시 AskUserQuestion 금지, 합리적 안 직접 골라 ADR로 근거 박는 패턴 메모리 `feedback_decide_and_act.md`로 저장.
+4. **A안 채택 (단일 행 + counterparty_account_id)** — 근거:
+   - 기존 `transactions` 단일 행 구조(ready.md 결정) 보존, V1/V2 영향 없음.
+   - 결제 흐름(Step 8 비관적 락 + 멱등성) 재사용 가능 → 학습 동선 매끄러움.
+   - DB CHECK + FK + UNIQUE 3중 방어로 정합성.
+   - 트레이드오프: 수신자 시점 잔액은 행에 없음 + 거래내역 OR 조건(BitmapOr 플래너 부담).
+5. **변경 사항**:
+   - 코드: `V3__transfer.sql` (counterparty 컬럼 + CHECK 2종 + 부분 인덱스), `TransactionType.TRANSFER` 추가, `Transaction.transfer()` 정적 팩토리.
+   - 문서: `ADR 0006-transfer-modeling.md` 작성, `ADR README` 인덱스 갱신, `ready.md` (송금 제외 해제 + 용어집 + ERD + API 명세 + 테이블 스펙 + 시나리오 9 → 12개), `sql.md` (MySQL DDL에 counterparty + FK + CHECK), `CLAUDE.md` (동시성/멱등성 룰 + 리뷰 체크리스트에 이체 포함), `uShould.md` (Step 8 결제+이체로 확장, ADR 번호 0007~0010으로 재정렬, Step 10 동시성 테스트에 이체 시나리오 추가).
+6. **Step 8 핵심 후속 결정** — 두 계정 동시 PESSIMISTIC_WRITE에서 데드락 회피용 `account_id` 오름차순 정렬 락 규칙. ADR 0011 후속 분리 여부는 Step 8 진입 시 결정.
+7. **다음**: 빌드 검증(`.\gradlew clean compileJava` + `build`) → step-3-entities 머지.
+
+### 2026-05-11 — 진행 점검 / Transaction.java 마무리 / 코드 리뷰 섹션 정착
 
 1. **모니터링 구성 질문** — 현재 `docker-compose.yml`에 `postgres:16` + `redis:7` 두 컨테이너만. Actuator/Micrometer/Prometheus/Grafana 모두 없음. 가이드 Step 0~11에도 모니터링 스텝 없음 → **완주 후 면접 답변지 보강용 확장 후보**로 메모.
 2. **진행 상황 동기화** — `User.java`는 이미 사용자가 `register` 빈칸 6곳을 채워서 완성한 상태였음(2차 채점 흔적 [주석 목적] 블록 보존). progress.md엔 여전히 "빈칸 6곳"으로 남아있어서 동기 어긋남 → 정정.
@@ -125,7 +190,23 @@
 5. **Transaction.java 빈칸 완성 + 2차 확인**:
    - 빈칸 9곳 전부 정답, 컴파일 에러도 둘 다 정상화.
    - 채점 워크플로우 마무리: 본 코드 주석 0줄로 정리 + 파일 하단 `[주석 목적]` 블록(스캐폴드 9종 분석 + 코드 자체 평가) 추가.
-6. **남은 일**: `compileJava` → 머지 → Step 4 회원가입 API.
+6. **빌드 검증 + 커밋 + 푸시**:
+   - `.\gradlew clean compileJava` ✅ (강제 재컴파일로 캐시 의존 제거).
+   - `.\gradlew build` ✅ (Flyway V1+V2 적용 + Hibernate `validate`로 엔티티 ↔ DB 컬럼 매칭 통과).
+   - 12 파일 스테이징 후 단일 커밋 `b5ec888` — "Step 3: 엔티티 완성 + ADR 5장 + 학습 자료 인덱스" (도메인 모델 / ADR / 학습 자료 3섹션 메시지).
+   - `step-3-entities` 브랜치 푸시 완료 (`e9a8945..b5ec888`).
+7. **CLAUDE.md `## 코드 리뷰 체크리스트` 섹션 추가**:
+   - 사용자가 본격 코드 리뷰 시작하려고 함 → ADR 0001~0005 + 컨벤션을 리뷰어 관점에서 재해석한 체크리스트 필요.
+   - 포맷: **ADR 트레이서형** (각 항목에 `[ADR-XXXX]` 태그 → 결정 근거 추적). 면접 답변지 활용 시 시각적 혁신.
+   - 범위: Step 4~8 미래 항목(보안/동시성/멱등성)도 미리 포함 — CLAUDE.md 본문 룰과 정합.
+   - 위치: `## 패키지 구조`와 `## 학습 진행 룰` 사이.
+   - 분량: 10 카테고리 × 평균 3 항목 ≈ 30개 체크. 기존 컨벤션 그대로 베끼지 않고 "리뷰 시 자주 빠뜨리는 검증 포인트"만.
+   - 다음 PR(Step 4 회원가입 API)부터 1회 적용 → 누락 발견 시 보강 예정.
+8. **머지 메시지 초안 합의** (`--no-ff` 권장):
+   - 제목: `Step 0~3 통합: 인프라 + 도메인 모델 + ADR 5장 + 문서` (50자, 70자 룰 통과).
+   - 본문 섹션: 인프라 / 비밀값 관리 / 마이그레이션 / 도메인 모델 / 컨벤션·문서 / 효과 / 검증 / 후속.
+   - `Co-Authored-By` 미포함 (머지 = 사용자 통합 결정, 개별 커밋엔 이미 박힘).
+9. **남은 일**: main 머지 → Step 4 회원가입 API 진입.
 
 ### 2026 이전 흐름
 
@@ -211,15 +292,13 @@
 
 **현재 단계 기준 다음 액션** (2026-05-11 기준):
 
-### 케이스 A — 바로 이어서 Step 3 마무리 (가장 가능성 높음)
-1. 컴파일: `.\gradlew compileJava` → BUILD SUCCESSFUL
-2. (선택) DB 띄운 상태에서 `.\gradlew build` → 통합 검증
-3. 머지 흐름: add/commit/push/checkout main/merge/push (머지 설명은 위 2026-05-04 요약 참고)
-4. Step 4 회원가입 API 진입
+### 케이스 A — 바로 이어서 main 머지 (가장 가능성 높음)
+1. `git checkout main` → `git pull` → `git merge --no-ff step-3-entities` (메시지 초안은 2026-05-11 요약 항목 8) → `git push`
+2. Step 4 회원가입 API 진입
 
 ### 케이스 B — "Step 4 회원가입 API 갈래"
-1. Step 3 미완 상태 짚기 (compileJava 미확인 + 머지 미실행)
-2. 그래도 진행 의지면 Step 4 안내
+1. Step 3 미완 상태 짚기 (main 머지 미실행)
+2. 그래도 진행 의지면 Step 4 안내 — 첫 PR에서 CLAUDE.md `## 코드 리뷰 체크리스트` 1회 적용 시뮬레이션 권장
 
 ---
 

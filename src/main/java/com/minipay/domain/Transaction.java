@@ -30,6 +30,9 @@ public class Transaction {
     @Column(name = "account_id", nullable = false)
     private Long accountId;
 
+    @Column(name = "counterparty_account_id")
+    private Long counterpartyAccountId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private TransactionType type;
@@ -105,6 +108,31 @@ public class Transaction {
         tx.amount = amount;
         tx.balanceAfter = balanceAfter;
         tx.merchantId = merchantId;
+        tx.idempotencyKey = idempotencyKey;
+        tx.status = TransactionStatus.SUCCESS;
+        tx.createdAt = OffsetDateTime.now();
+        return tx;
+    }
+
+    public static Transaction transfer(Long accountId, Long counterpartyAccountId,
+                                       Money amount, Money balanceAfter,
+                                       String idempotencyKey) {
+        if (accountId == null || counterpartyAccountId == null) {
+            throw new IllegalArgumentException("accountId/counterpartyAccountId는 필수입니다");
+        }
+        if (accountId.equals(counterpartyAccountId)) {
+            throw new IllegalArgumentException("자기 자신에게 이체할 수 없습니다");
+        }
+        if (amount == null || balanceAfter == null) {
+            throw new IllegalArgumentException("amount/balanceAfter는 필수입니다");
+        }
+
+        Transaction tx = new Transaction();
+        tx.accountId = accountId;
+        tx.counterpartyAccountId = counterpartyAccountId;
+        tx.type = TransactionType.TRANSFER;
+        tx.amount = amount;
+        tx.balanceAfter = balanceAfter;
         tx.idempotencyKey = idempotencyKey;
         tx.status = TransactionStatus.SUCCESS;
         tx.createdAt = OffsetDateTime.now();

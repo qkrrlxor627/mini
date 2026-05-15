@@ -62,17 +62,21 @@
 
 ---
 
-## 📦 Step 8 — 결제 API (3h, ⭐ 메인)
+## 📦 Step 8 — 결제 + 이체 API (3.5h, ⭐ 메인)
 
 | 패키지 | 파일 | 내용 |
 |---|---|---|
 | `dto` | `PaymentRequest.java` / `PaymentResponse.java` | record + `from(Transaction)` |
-| `service` | `IdempotencyStore.java` | Redis SETNX 래퍼 — `find(key, type)`, `save(key, value, ttl)` |
+| `dto` | `TransferRequest.java` / `TransferResponse.java` | record + `from(Transaction)` |
+| `service` | `IdempotencyStore.java` | Redis SETNX 래퍼 — `find(key, type)`, `save(key, value, ttl)`. 결제·이체 공용. |
 | `service` | `PaymentService.java` | `@Transactional pay()` — ① Redis 멱등키 검사 ② 비관적 락 ③ `account.deduct(money)` ④ `Transaction.payment` 저장 ⑤ Redis 캐시 |
+| `service` | `TransferService.java` | `@Transactional transfer()` — ① 자기 자신 이체 거부 ② Redis 멱등키 검사 ③ **두 계정 `account_id` 오름차순 정렬 후 PESSIMISTIC_WRITE** ④ `sender.deduct` + `receiver.charge` ⑤ `Transaction.transfer` 저장 ⑥ Redis 캐시 |
 | `controller` | `PaymentController.java` | `POST /api/payments` + `@RequestHeader("Idempotency-Key")` |
+| `controller` | `TransferController.java` | `POST /api/transfers` + `@RequestHeader("Idempotency-Key")` |
 | `config` | `RedisConfig.java` (필요 시) | `StringRedisTemplate`, `ObjectMapper` Bean |
+| `domain` | `InvalidTransferTargetException.java` | 자기 자신 이체 / 통화 불일치 |
 
-체크리스트 4종(가이드 Step 8): 정상 결제 / 잔액 부족 / 같은 키 두 번 / 다른 키 두 번.
+체크리스트 7종: 정상 결제 / 잔액 부족 / 같은 키 두 번 / 다른 키 두 번 / 정상 이체 / 자기 자신 이체 거부 / 두 결제 + 두 이체 동시 시 데드락 없음 확인.
 
 ---
 
@@ -80,10 +84,10 @@
 
 | 패키지 | 파일 | 내용 |
 |---|---|---|
-| `repository` | `TransactionRepository` | `findByAccountId(accountId, Pageable)` 또는 `findByAccount_UserId` |
-| `dto` | `TransactionResponse.java` | record + `from(Transaction)` |
-| `service` | `PaymentService.list()` | `@Transactional(readOnly = true)` |
-| `controller` | `PaymentController.list` | `GET /api/payments?page=&size=` |
+| `repository` | `TransactionRepository` | `findByAccountIdOrCounterpartyAccountId(myAccountId, myAccountId, Pageable)` — 송금자/수신자 양쪽 시점 (ADR 0006). 부분 인덱스 `idx_transactions_counterparty_id_created_at` 활용. |
+| `dto` | `TransactionResponse.java` | record + `from(Transaction)`. 이체 시 `direction` 필드(SENT/RECEIVED)를 호출자 시점에서 계산해 응답 |
+| `service` | `TransactionQueryService.list()` | `@Transactional(readOnly = true)` |
+| `controller` | `TransactionController.list` | `GET /api/transactions?page=&size=` |
 
 ---
 
@@ -94,11 +98,12 @@
 | `src/test/.../service` | `PaymentConcurrencyTest.java` | `@SpringBootTest` (※ 메서드에 `@Transactional` 금지) |
 | 〃 | (옵션) `setupUserWithBalance` 헬퍼 | |
 
-테스트 2개:
+테스트 3개:
 1. 잔액 100,000 + 1,000원 결제 100건 동시 → 잔액 0, success=100, tx=100
 2. 같은 멱등키 10번 동시 → 1건만 처리, 잔액 99,000
+3. 계좌 A↔B 양방향 이체 동시 (각 100건) → 데드락 없이 모두 성공, 양쪽 잔액 보존. 락 순서 정렬 규칙 검증.
 
-**락 빼고 한 번 깨뜨려보기 → 다시 복구**도 필수 (면접 답변 깊이용).
+**락 빼고 한 번 깨뜨려보기 → 다시 복구**도 필수 (면접 답변 깊이용). 이체에서는 락 순서 정렬 제거 시 데드락 재현도 별도 시연.
 
 ---
 
@@ -128,10 +133,12 @@ com.minipay
 
 각 Step의 `> _(직접 작성)_` 자리(가이드 13곳). 면접 답변지의 본체. ADR로 승격할 만한 것:
 
-- **ADR 0006** — 비관적 락 선택(낙관적 락 비교) ← Step 8 핵심
-- **ADR 0007** — 멱등성 Redis+DB 이중방어 ← Step 8 핵심
-- **ADR 0008** — Refresh Token 미도입(스코프 컷) ← Step 5
-- (선택) ADR 0009 — AFTER_COMMIT 이벤트 분리
+- ~~ADR 0006~~ → ✅ 작성됨: 이체 모델링 (단일 행 + counterparty) — 2026-05-14
+- **ADR 0007** — 비관적 락 선택(낙관적 락 비교) ← Step 8 핵심
+- **ADR 0008** — 멱등성 Redis+DB 이중방어 ← Step 8 핵심
+- **ADR 0009** — Refresh Token 미도입(스코프 컷) ← Step 5
+- (선택) ADR 0010 — AFTER_COMMIT 이벤트 분리
+- (선택) ADR 0011 — 이체 시 두 계정 락 순서 정렬(데드락 회피) — Step 8 구현 시 ADR 0006의 후속으로 분리할지 결정
 
 ---
 
