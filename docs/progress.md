@@ -10,7 +10,7 @@
 
 ## 🎯 현재 위치
 
-**Step 7 완료 — 잔액 충전 API + 비관적 락 첫 등장 + @AuthenticationPrincipal 첫 실전. 검증 5종 통과. 다음은 Step 8 결제 API (멱등성 + 두 계정 락은 이체).**
+**Step 8-A 완료 — 결제 API + 멱등성 이중 방어(Redis SETNX + DB UNIQUE) + ADR 0009/0010. 검증 6종 통과. 다음은 Step 8-B 이체 API (두 계정 락 정렬, ADR 0011 후보).**
 
 ### 완료
 - 사전 인프라: `CLAUDE.md` + `docs/adr/README.md` 작성
@@ -56,15 +56,16 @@
 - 진행 방식: Claude 샘플 → 사용자 따라 쓰기 + 주석 채점 워크플로우 병행
 
 ### 다음 액션 (다음 세션 시작 시)
-1. **Step 7 커밋** — 메시지 초안: "Step 7: 잔액 충전 API + 비관적 락 첫 등장 + @AuthenticationPrincipal 첫 실전".
-2. **Step 8 진입 — 결제 API** (`POST /api/v1/payments`):
-   - 멱등성(`Idempotency-Key` 헤더 필수 + Redis SETNX + DB UNIQUE 이중 방어) **첫 등장**
-   - 비관적 락 + `account.deduct(money)` (잔액 부족 시 `InsufficientBalanceException → 400`)
-   - `Transaction.payment(merchantId, idempotencyKey)` 호출 — 이미 작성된 정적 팩토리 첫 실전
-   - `PaymentRequest`(amount + merchantId)/`PaymentResponse` DTO
-   - 핵심 결정 후보: 멱등 키 ADR(0009 후보) — Redis vs DB 책임 분담, TTL 10분, 응답 캐시
-   - 이체(TRANSFER)는 Step 8 후반 또는 별도 진입 — 두 계정 락 순서 정렬(ADR 0006 재방문)
-3. **8080 충돌 정리** — 해소됨(2026-05-17 부팅 정상). 추후 재현 시 `server.port: 8081` 박을지 결정
+1. **Step 8-A 커밋** — 메시지 초안: "Step 8-A: 결제 API + 멱등성 이중 방어 + ADR 0009/0010".
+2. **Step 8-B 진입 — 이체 API** (`POST /api/v1/transfers`):
+   - `TransferService` — IdempotencyStore에 `tryAcquireTransfer` 추가(prefix `idem:transfer:`)
+   - 두 계좌 락: `account_id` 오름차순 정렬 후 `PESSIMISTIC_WRITE` 획득 — 데드락 회피
+   - `InvalidTransferTargetException` (자기 자신 / 통화 불일치 / 수신자 부재)
+   - 응답 = 송금자 차감 후 잔액 + 거래 1건(송금자 시점)
+   - ADR 0011 — 두 계정 락 순서 정렬 규칙 분리 (ADR 0006 후속)
+3. **Step 9 진입 — 거래내역 조회 API** (Step 8-B 완료 후):
+   - `TransactionRepository.findByAccountIdOrCounterpartyAccountId(myAccountId, myAccountId, Pageable)` — 송금자/수신자 양쪽 시점 (ADR 0006). 부분 인덱스 `idx_transactions_counterparty_id_created_at` 활용.
+   - `TransactionResponse.from(tx, myAccountId)` — 이체 시 `direction` 필드(SENT/RECEIVED) 계산
 
 ---
 
@@ -133,6 +134,24 @@
   - [x] `GlobalExceptionHandler` 핸들러 2종 추가: `InvalidCredentialsException → 401`, `NoResourceFoundException → 404`
   - [x] 검증 5종: 정상 가입+로그인 200 + JWT 발급 / 잘못된 비번 401 / 없는 이메일 401(동일 응답) / 토큰+매핑없는 경로 404 NOT_FOUND / 토큰없음+매핑없는 경로 401(필터가 먼저 잡음)
   - [x] **부수 발견**: ADR-0007 fallback 로깅 보강이 즉각 가치 발휘 — `NoResourceFoundException`을 단 1회 호출로 식별 가능. 진단→픽스 5분 컷.
+- [x] **Step 8-A — 결제 API + 멱등성** ✅ 완료 (2026-05-17)
+  - [x] ADR 0009 — 비관적 락 선택 (낙관적 락 비교, 면접 답변지 깊이)
+  - [x] ADR 0010 — 멱등성 Redis SETNX(1차) + DB UNIQUE(최후 방어) 이중 방어 / TTL 10분 / 응답 캐시 = DB 재조회 / Redis 장애 fallback / 같은 키+다른 본문 → 409
+  - [x] `MissingIdempotencyKeyException` (400) + `IdempotencyKeyConflictException` (409)
+  - [x] `PaymentRequest` (`@NotBlank merchantId` + `@DecimalMin(1) amount`) / `PaymentResponse.from(tx)`
+  - [x] `IdempotencyStore` — `StringRedisTemplate.opsForValue().setIfAbsent` + Duration TTL 10분 + Redis 장애 시 `true` fallback + `log.warn`
+  - [x] `TransactionRepository.findByIdempotencyKey` 추가
+  - [x] `PaymentService.pay()` — ① 비관적 락 조회 ② findByIdempotencyKey → 본문 일치 검증 (replay or 409) ③ tryAcquirePayment ④ deduct ⑤ saveAndFlush + DataIntegrityViolationException catch → 재조회 self-heal
+  - [x] `PaymentController.pay()` POST `/api/v1/payments` + `@RequestHeader("Idempotency-Key", required=false)` + 빈 값 검증 → `MissingIdempotencyKeyException`
+  - [x] `GlobalExceptionHandler`: `MissingIdempotencyKey → 400`, `IdempotencyKeyConflict → 409` + `InsufficientBalance` 메시지 명시화("잔액이 부족합니다")
+  - [x] 검증 6종 전부 통과:
+    - 정상 결제 2000 → 200 (잔액 8000)
+    - 같은 키+같은 본문 → 200 첫 응답 그대로 (transactionId=4 동일)
+    - 같은 키+다른 본문 → 409 IDEMPOTENCY_KEY_CONFLICT
+    - 멱등키 누락 → 400 MISSING_IDEMPOTENCY_KEY
+    - 잔액 부족 → 400 INSUFFICIENT_BALANCE
+    - 신규 키+정상 결제 1000 → 200 (잔액 7000)
+  - [x] DB 검증: accounts.balance=7000, transactions 3건(CHARGE+PAYMENT 2건), 멱등키 정확히 2건 + 부족 시도 1건 Redis만 남음 (ADR-0010 "Redis 키만 남고 거래 없음" 케이스 자체 검증)
 - [x] **Step 7 — 잔액 충전 API** ✅ 완료 (2026-05-17)
   - [x] `AccountNotFoundException` (404 매핑, 명명 클래스)
   - [x] `AccountRepository.findByUserIdForUpdate()` — `@Lock(PESSIMISTIC_WRITE)` + `@Query` **첫 등장**
@@ -144,7 +163,11 @@
   - [x] 검증 5종: 정상 충전 10000 200 / 추가 충전 5000 → 잔액 누적 15000 ✅ / 0원 400 VALIDATION_FAILED / 토큰없음 401 / 잘못된 토큰 401
   - [x] **부수 발견**: PowerShell curl이 한국어 본문을 cp949로 보내 `JSON parse error: Invalid UTF-8 middle byte 0xe6` 발생 → fallback `log.error`(ADR-0007) 한 줄로 5초 진단. 픽스: ASCII 이름으로 우회 (앱은 무관). 면접 답변지 소재.
   - [x] 새 결정 0개 — 비관적 락(ADR 0006 컨텍스트) / KRW 고정(ADR 0007) / 명명 예외(컨벤션) 모두 기존 결정 적용. ADR 추가 없음.
-- [ ] Step 8 ⭐ — 결제 API (비관적 락 + 멱등성)
+- [ ] **Step 8-B — 이체 API** (두 계정 락 정렬 — ADR 0011 후보)
+  - 자기 자신 이체 거부 (`InvalidTransferTargetException`)
+  - 송금자/수신자 `account_id` 오름차순 정렬 후 PESSIMISTIC_WRITE 획득 (데드락 회피)
+  - `TransferService` — 멱등성 패턴은 `PaymentService`와 공통 (IdempotencyStore 키 prefix만 `idem:transfer:`로 추가 예정)
+  - 검증 4종: 정상 이체 / 자기 자신 거부 / 잔액 부족 / 같은 키 두 번
 - [ ] Step 9 — 거래내역 조회 API
 - [ ] Step 10 ⭐ — 동시성 통합 테스트
 - [ ] Step 11 — Swagger 시나리오 검증
@@ -161,6 +184,32 @@
 ---
 
 ## 💬 마지막 대화 요약
+
+### 2026-05-17 (저녁) — Step 8-A: 결제 API + 멱등성 이중 방어
+
+1. **진입 결정** — Step 8은 결제+이체 한 묶음(uShould.md/ready.md)이지만 작업량 큰 만큼 **결제(8-A) → 이체(8-B) 분할 진입**. 새 결정 2개 식별 → ADR 0009/0010 사전 박고 코드.
+2. **ADR 0009 — 비관적 락 선택**: CLAUDE.md/Step 7 첫 실전을 정식 ADR로 격상. 낙관적 락(@Version+재시도) 부적합 이유 — 재시도 UX 손상, 한도 정책 부담, 같은 계좌 충돌 가정이 더 현실적. PESSIMISTIC_WRITE 한 종 통일(READ 안 씀, 결국 UPDATE). 락 메서드는 이름에 의도 박음(`findByUserIdForUpdate`). 트랜잭션 안 외부 I/O 금지 룰 재확인. 재검토 신호 4종.
+3. **ADR 0010 — 멱등성 Redis SETNX + DB UNIQUE 이중 방어**: Stripe API와 유사한 패턴. 응답 캐시는 **DB 재조회**로 통일(SSoT). TTL 10분(더블 클릭/재시도 윈도우). Redis 장애 시 `true` fallback + log.warn → 가용성 우선, DB UNIQUE가 최후 방어. 같은 키+다른 본문 → 409 IDEMPOTENCY_KEY_CONFLICT. 자기치유 패턴: DataIntegrityViolationException → findByIdempotencyKey 재조회.
+4. **파일 11종 작성**:
+   - `exception/MissingIdempotencyKeyException` (400) / `IdempotencyKeyConflictException` (409)
+   - `dto/PaymentRequest` (`@NotBlank merchantId` + `@DecimalMin(1) amount`) / `PaymentResponse.from(tx)`
+   - `service/IdempotencyStore` — Redis 래퍼, `tryAcquirePayment(key)` + `idem:payment:` prefix + Duration TTL 10분 + DataAccessException catch
+   - `repository/TransactionRepository` — `findByIdempotencyKey` 추가
+   - `service/PaymentService` — 비관적 락 → DB 재조회(replay) → SETNX → deduct → saveAndFlush → DataIntegrityViolationException self-heal
+   - `controller/PaymentController` — POST `/api/v1/payments` + `@RequestHeader("Idempotency-Key", required=false)` + 빈 값 검증
+   - `exception/GlobalExceptionHandler` — `MissingIdempotencyKey → 400 MISSING_IDEMPOTENCY_KEY`, `IdempotencyKeyConflict → 409 IDEMPOTENCY_KEY_CONFLICT`. `InsufficientBalance` 메시지 명시화("잔액이 부족합니다") — 도메인 예외 자체엔 메시지 없음.
+   - `docs/adr/0009-pessimistic-locking.md` + `0010-idempotency-dual-defense.md` + README 갱신
+5. **컴파일 + 빌드** — `compileJava` 14s, `build` 16s (3 tests + Hibernate validate). 둘 다 BUILD SUCCESSFUL.
+6. **부팅 + 검증 6종 전부 ✅**:
+   - 정상 결제 2000 → 200 (transactionId=4, balance=8000)
+   - 같은 키+같은 본문 → 200 첫 응답 그대로 (transactionId=4 동일, **replay**)
+   - 같은 키+다른 본문(merchantId M-002) → 409 IDEMPOTENCY_KEY_CONFLICT
+   - 멱등키 누락 → 400 MISSING_IDEMPOTENCY_KEY
+   - 잔액 부족(잔액 8000인데 100000 요청) → 400 INSUFFICIENT_BALANCE
+   - 신규 키+정상 결제 1000 → 200 (balance=7000)
+7. **DB + Redis 직접 확인** — accounts.balance=7000.0000, transactions 3건(CHARGE 10000 + PAYMENT 2000 + PAYMENT 1000), 멱등키 정확히 2건만 저장(idempotency_key는 PAYMENT만, CHARGE는 NULL). Redis에는 3개 키(`pay-...-1`, `pay-...-2`, `pay-...-3`) — `-2`는 잔액 부족 시도라 거래는 없지만 SETNX 통과 후 deduct에서 거절돼서 Redis 키만 남음. **ADR 0010의 "Redis 키만 남고 거래 없음" 케이스 자체 검증** 성공.
+8. **함정 + 우회** — git bash에 `uuidgen` 없음 → 타임스탬프 기반 키(`pay-$(date +%s%N)-N`)로 우회. 면접 답변지 소재 아님(환경 차이일 뿐).
+9. **새 결정 2개 → ADR 2장** 박힘. 면접 답변지 깊이용 자료 확보. 다음은 Step 8-B 이체 + ADR 0011(두 계정 락 정렬).
 
 ### 2026-05-17 — Step 7: 잔액 충전 API + 비관적 락 첫 등장
 

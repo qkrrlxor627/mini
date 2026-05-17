@@ -57,7 +57,21 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleInsufficientBalance(InsufficientBalanceException ex) {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ErrorResponse.of("INSUFFICIENT_BALANCE", ex.getMessage()));
+                .body(ErrorResponse.of("INSUFFICIENT_BALANCE", "잔액이 부족합니다"));
+    }
+
+    @ExceptionHandler(MissingIdempotencyKeyException.class)
+    public ResponseEntity<ErrorResponse> handleMissingIdempotencyKey(MissingIdempotencyKeyException ex) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponse.of("MISSING_IDEMPOTENCY_KEY", ex.getMessage()));
+    }
+
+    @ExceptionHandler(IdempotencyKeyConflictException.class)
+    public ResponseEntity<ErrorResponse> handleIdempotencyKeyConflict(IdempotencyKeyConflictException ex) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of("IDEMPOTENCY_KEY_CONFLICT", ex.getMessage()));
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
