@@ -3,6 +3,8 @@
 > 코딩 시작 전 / 진행 중에 채워두는 산출물 모음.
 > 목적은 "지금 빨리 만드는 것"이 아니라 **팀 프로젝트 들어갔을 때 한 번 돌려본 사람이 되어있는 것**.
 > 이미 코딩 중이므로 **1·2·3·8 먼저, 나머지는 기능 개발하면서 점진적으로** 채운다.
+>
+> 🎉 **2026-05-18 Mini Pay 프로젝트 종결** — 시나리오 12/12 통과, ADR 11장 작성 완료.
 
 ---
 
@@ -146,6 +148,8 @@ erDiagram
 ```
 
 이 12개를 Swagger에서 실제로 통과시키는 게 **Step 11 = 프로젝트 종결 조건**.
+
+> ✅ **2026-05-18 종결 완료** — 12/12 전부 통과. 검증 결과는 [`docs/swagger-e2e-0518.md`](swagger-e2e-0518.md) 참고.
 
 ---
 
@@ -354,18 +358,23 @@ sequenceDiagram
 > **회고 목표**였던 "ADR 쓰기"의 적기. 결정할 때마다 그 자리에서 15분.
 > 폴더: `docs/adr/` (이미 존재, README.md 있음)
 
-### 작성 예정 ADR 목록 (Step 진행과 함께)
+### 작성된 ADR 목록 (Step 진행 결과, 최종 11장 — 2026-05-18 기준)
 
-| 번호 | 제목 | 결정 시점 | 상태 |
+| 번호 | 제목 | Step | 상태 |
 |---|---|---|---|
-| 0001 | 금액은 `NUMERIC(19,4)` + `BigDecimal` 사용 | Step 2 | 📝 작성 대기 |
-| 0002 | 시간은 `TIMESTAMPTZ` + `OffsetDateTime` 사용 | Step 2 | 📝 작성 대기 |
-| 0003 | Money VO 도입 (`@Embeddable`) | Step 3 | 📝 작성 대기 |
-| 0004 | Enum은 `@Enumerated(EnumType.STRING)` 고정 | Step 3 | 📝 작성 대기 |
-| 0005 | 잔액 차감은 비관적 락 디폴트 | Step 8 | ⏳ 예정 |
-| 0006 | 멱등성은 Redis SETNX + DB UNIQUE 이중 방어 | Step 8 | ⏳ 예정 |
-| 0007 | OSIV 비활성화 (`open-in-view: false`) | Step 1 | 📝 작성 대기 |
-| 0008 | `ddl-auto: validate` 고정 (Flyway = 단일 진실) | Step 1 | 📝 작성 대기 |
+| [0001](adr/0001-money-value-object.md) | Money Value Object 도입 (scale 4 / HALF_EVEN) | 3 | ✅ Accepted |
+| [0002](adr/0002-enum-string-mapping.md) | Enum + `EnumType.STRING` 매핑 | 3 | ✅ Accepted |
+| [0003](adr/0003-static-factory-vs-builder.md) | 정적 팩토리 메서드 vs Builder | 3 | ✅ Accepted |
+| [0004](adr/0004-flyway-forward-only.md) | Flyway 단방향 마이그레이션 정책 | 3 | ✅ Accepted |
+| [0005](adr/0005-transaction-account-reference-by-id.md) | Transaction은 Account를 ID로 참조 | 3 | ✅ Accepted |
+| [0006](adr/0006-transfer-modeling.md) | 이체(TRANSFER) 거래는 단일 행 + counterparty | 3 | ✅ Accepted |
+| [0007](adr/0007-auth-and-error-foundation.md) | 인증·에러 핸들링 기반 (BCrypt + GlobalExceptionHandler + 임시 SecurityConfig + fallback 로깅) | 4 | ✅ Accepted |
+| [0008](adr/0008-jwt-stateless-auth.md) | JWT 기반 stateless 인증 (DB 조회 X) | 5 | ✅ Accepted |
+| [0009](adr/0009-pessimistic-locking.md) | 잔액 변경은 비관적 락(PESSIMISTIC_WRITE) 디폴트 | 7~8 | ✅ Accepted |
+| [0010](adr/0010-idempotency-dual-defense.md) | 멱등성 Redis SETNX(1차) + DB UNIQUE(최후 방어) 이중 방어 | 8 | ✅ Accepted |
+| [0011](adr/0011-transfer-lock-ordering.md) | 이체 시 두 계좌 락은 `account_id` 오름차순 정렬 후 획득 | 8 | ✅ Accepted |
+
+> 학습 확장 후보(미작성): 0012 AFTER_COMMIT 이벤트 분리 / 0013 토큰 블랙리스트 / 0014 모니터링 스택. 종결 후 운영 시뮬레이션으로 확장 시.
 
 ### ADR 템플릿 (`docs/adr/0001-xxx.md`)
 ```markdown
