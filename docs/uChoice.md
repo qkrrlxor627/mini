@@ -51,18 +51,19 @@
 | **fallback 핸들러에 `log.error` 명문화** | 표준은 "남기는 게 좋음" 권고 | 한 번 다쳤음(0515) — ADR로 박아 규칙화 | ADR-0007 보강 + `docs/swaggerTroubleShoot0515.md` |
 | **모니터링/메트릭 없음** | 운영 표준은 Actuator + Prometheus + Grafana | 가이드 Step 0~11에 없음 — 완주 후 확장 후보 | — |
 | **trace ID 없음** | 분산 시스템 표준 | 단일 서버 — 도입 가치 < 비용 | — |
+| **Refresh token 미도입, 1시간 access만** | OAuth2 표준 (access + refresh 쌍 + 회전) | 단일 서버 + 학습 범위 — 재로그인이 UX 허용 | ADR-0008 |
+| **JWT 검증 시 DB 조회 X — `sub` claim만 신뢰** | 일부 표준 (매 요청 사용자 조회 / 즉시 무효화 가능) | stateless 보존 + 매 요청 DB 1회 회피 (트레이드오프: 토큰 즉시 무효화 불가) | ADR-0008 |
+| **401 명시화 (`AuthenticationEntryPoint`)** | Spring Security 디폴트는 403 fallback | "인증 자체 없음 = 401" / "권한 부족 = 403" 의미 분리 | ADR-0008 |
+| **`UserDetailsService`/`UserDetails` 안 만듦** | Spring Security 표준 인터페이스 | 도메인 `User`와 충돌, principal `Long`으로 두면 경계 깔끔 | ADR-0008 |
 
 > **한 줄 이유**: 학습 + 도메인 단순성이 우선. 일탈할 때마다 ADR로 근거 박아둠 → 면접에서 "왜 표준 안 썼냐"에 즉답.
 
 ---
 
-## 3. Step 5~11에서 등장할 일탈 미리보기
+## 3. Step 6~11에서 등장할 일탈 미리보기
 
 | Step | 우리 결정 | 표준은 | 이유 | 예상 ADR |
 |---|---|---|---|---|
-| **5** | Refresh token 안 만듦, access 1시간 후 재로그인 | OAuth2 표준은 access+refresh 쌍 | 학습 범위 + 단일 서버라 즉시 무효화 필요성 낮음 | 0008 후보 |
-| **5** | JWT 검증 시 DB 조회 X (claim의 `sub`만 신뢰) | 일부 표준은 매 요청 사용자 조회 | 성능 vs 즉시 무효화 — stateless 보존 (블랙리스트 도입 시 변경) | 0008 후보 |
-| **5** | 401 명시화 (`AuthenticationEntryPoint`) | Spring Security 디폴트는 403 fallback | "리소스 부재" vs "인증 자체 없음" 구분 | 0008 후보 |
 | **8** | 두 계정 락 `account_id` 오름차순 정렬 | 표준 없음 — 도메인 룰 | 데드락 회피 | 0009 후보 |
 | **8** | Idempotency-Key 헤더 + Redis SETNX + DB UNIQUE 이중 방어 | IETF draft 존재 (표준 미만) | Redis 장애에도 결제 살아있어야 | 0010 후보 |
 | **8** | 트랜잭션 안 외부 I/O 금지 → `AFTER_COMMIT` 이벤트로 분리 | 일반 코드는 자유 | 락 점유 시간↑ + 롤백 어려움 | — |

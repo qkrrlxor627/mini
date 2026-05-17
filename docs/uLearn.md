@@ -1,5 +1,6 @@
 # Mini Pay 완성 시 학습 자산
 
+
 > 가이드(`docs/mini-pay-guide.md`) + 우리 컨벤션(`CLAUDE.md`) + ADR을 종합해, 면접에서 실제로 써먹을 수 있는 단위로 정리.
 
 ---

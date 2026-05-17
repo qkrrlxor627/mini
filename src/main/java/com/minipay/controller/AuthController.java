@@ -1,5 +1,7 @@
 package com.minipay.controller;
 
+import com.minipay.dto.LoginRequest;
+import com.minipay.dto.LoginResponse;
 import com.minipay.dto.SignupRequest;
 import com.minipay.dto.SignupResponse;
 import com.minipay.service.AuthService;
@@ -23,5 +25,10 @@ public class AuthController {
     public ResponseEntity<SignupResponse> signup(@Valid @RequestBody SignupRequest request) {
         SignupResponse response = authService.signup(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+        return ResponseEntity.ok(authService.login(request));
     }
 }

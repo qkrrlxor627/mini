@@ -10,7 +10,7 @@
 
 ## 🎯 현재 위치
 
-**Step 4 회원가입 API 코드 작성 완료. `compileJava` 통과. `bootRun` + 수동 검증(curl 시나리오 3종) 남음.**
+**Step 6 완료 — 로그인 API + JWT 통합 검증 + 404 핸들러 추가. 검증 5종 통과. 다음은 Step 7 잔액 충전 API.**
 
 ### 완료
 - 사전 인프라: `CLAUDE.md` + `docs/adr/README.md` 작성
@@ -56,10 +56,16 @@
 - 진행 방식: Claude 샘플 → 사용자 따라 쓰기 + 주석 채점 워크플로우 병행
 
 ### 다음 액션 (다음 세션 시작 시)
-1. **검증 (남은 일)** — `docker compose ps`로 인프라 확인 → `.\gradlew build` (Hibernate validate 통과 확인) → `.\gradlew bootRun` 후 curl로 시나리오 4종 검증 (정상 가입 / 중복 / 검증 실패 / 보호 경로 401). 명령은 `C:\Users\SSAFY\.claude\plans\gentle-snuggling-hartmanis.md` "검증" 섹션 참고.
-2. 검증 통과 후 단일 커밋으로 step-3-entities 또는 신규 step-4 브랜치 정리 — 사용자가 결정.
-3. Step 5 진입 — Spring Security + JWT 본격 (SecurityConfig 확장 + JwtTokenProvider + JwtAuthenticationFilter)
-4. Step 8 진입 시 ADR 0006 재방문 — 두 계정 락 순서 정렬 규칙을 ADR 0011 후속으로 분리할지 결정
+1. **Step 5+6 묶음 커밋** — 메시지 초안: "Step 5+6: JWT 인프라 + 로그인 API + ADR 0008 + Flyway V3 픽스 + 404 핸들러".
+2. **Step 7 진입 — 잔액 충전 API** (`POST /api/v1/accounts/charge`):
+   - `AccountRepository.findByUserIdForUpdate()` — `@Lock(PESSIMISTIC_WRITE)` 첫 등장
+   - `TransactionRepository` 신설
+   - `ChargeRequest` / `ChargeResponse` DTO
+   - `AccountService` (`@Transactional` + 비관적 락 + `account.charge(money)` + `Transaction.charge` 기록)
+   - `AccountController.charge()` `@AuthenticationPrincipal Long userId` 사용 — Step 5 인프라의 첫 실전 활용
+   - `AccountNotFoundException`
+3. **Step 8 진입 시 ADR 0006 재방문** — 두 계정 락 순서 정렬 규칙을 별도 ADR로 분리할지 결정
+4. **8080 충돌 정리** — `itax-backend` 컨테이너 정리할지, `application.yml`에 `server.port: 8081` 박을지 결정
 
 ---
 
@@ -111,8 +117,23 @@
   - [x] `.\gradlew clean compileJava` BUILD SUCCESSFUL
   - [ ] `.\gradlew build` (Hibernate validate, docker 떠야 함)
   - [ ] `bootRun` + curl 시나리오 4종
-- [ ] Step 5 ⚠️ — Spring Security + JWT 필터
-- [ ] Step 6 — 로그인 API
+- [x] **Step 5 ⚠️ — Spring Security + JWT 필터** ✅ 완료 (2026-05-15)
+  - [x] `JwtTokenProvider` (jjwt 0.12.6 API, HS256, `sub=userId`)
+  - [x] `JwtTokenProviderTest` 2건 (round-trip + ExpiredJwtException)
+  - [x] `JwtAuthenticationFilter` (`OncePerRequestFilter`, catch 후 EntryPoint 위임)
+  - [x] `JwtAuthenticationEntryPoint` (401 + `ErrorResponse` JSON, `ObjectMapper` Bean 주입)
+  - [x] `SecurityConfig` 확장 (`addFilterBefore` + `exceptionHandling`)
+  - [x] ADR 0008 — JWT stateless 인증 (claim 구조 / refresh 미도입 / DB 조회 없음 / 401 명시화)
+  - [x] 검증: build (3 tests pass) + bootRun + curl 4종 (401 토큰없음 / 401 잘못된 토큰 / 201 가입 회귀 / 200 swagger 회귀)
+  - [x] **트러블슈팅**: Flyway V3 checksum mismatch 발견 → `.gitattributes`로 LF 강제 + DB 체크섬 NULL → 재계산. 학습 가치 큰 함정.
+- [x] **Step 6 — 로그인 API** ✅ 완료 (2026-05-15)
+  - [x] `LoginRequest`/`LoginResponse` record DTO
+  - [x] `InvalidCredentialsException` (이메일 없음/비번 틀림 통합 — ADR-0007 보안 룰)
+  - [x] `AuthService.login()` (`readOnly = true`, BCrypt matches, `JwtTokenProvider.issue`)
+  - [x] `AuthController.login()` POST `/api/v1/auth/login`
+  - [x] `GlobalExceptionHandler` 핸들러 2종 추가: `InvalidCredentialsException → 401`, `NoResourceFoundException → 404`
+  - [x] 검증 5종: 정상 가입+로그인 200 + JWT 발급 / 잘못된 비번 401 / 없는 이메일 401(동일 응답) / 토큰+매핑없는 경로 404 NOT_FOUND / 토큰없음+매핑없는 경로 401(필터가 먼저 잡음)
+  - [x] **부수 발견**: ADR-0007 fallback 로깅 보강이 즉각 가치 발휘 — `NoResourceFoundException`을 단 1회 호출로 식별 가능. 진단→픽스 5분 컷.
 - [ ] Step 7 — 잔액 충전 API
 - [ ] Step 8 ⭐ — 결제 API (비관적 락 + 멱등성)
 - [ ] Step 9 — 거래내역 조회 API
@@ -131,6 +152,56 @@
 ---
 
 ## 💬 마지막 대화 요약
+
+### 2026-05-15 (밤) — Step 6: 로그인 API + 404 핸들러 추가
+
+1. **Step 5 커밋 보류 결정** — 사용자 C 선택. Step 5 + Step 6 묶음 커밋으로 갈 예정.
+2. **Step 6 plan 텍스트로** — 새 결정 0개라 plan mode 안 거치고 진행 (Step 4/5 패턴 일관성보다 빠른 진행 우선). 산출물: DTO 2 + 예외 1 + 기존 3 수정.
+3. **코드 작성**:
+   - `dto/LoginRequest` record (`@Email @NotBlank` / `@NotBlank`)
+   - `dto/LoginResponse` record (`accessToken`, `expiresIn` 초 단위)
+   - `exception/InvalidCredentialsException` (이메일 없음/비번 틀림 통일 — ADR-0007 보안 룰)
+   - `AuthService.login()` 추가 (`@Transactional(readOnly = true)` + `findByEmail` + `passwordEncoder.matches` + `jwtTokenProvider.issue` + `expiresIn = jwtExpirationMs / 1000`)
+   - `AuthController.login()` 추가
+   - `GlobalExceptionHandler`에 `InvalidCredentialsException → 401 INVALID_CREDENTIALS` 핸들러
+4. **빌드** — BUILD SUCCESSFUL (3 tests).
+5. **검증 5종**:
+   - 가입+로그인 → 200 + JWT (sub=4, exp 1시간) ✅
+   - 잘못된 비번 → 401 INVALID_CREDENTIALS ✅
+   - 없는 이메일 → 401 동일 응답 ✅ (계정 존재 노출 금지)
+   - **토큰 + 매핑 없는 경로 → 처음엔 500 INTERNAL_ERROR**
+6. **함정 발견 + 즉시 진단**:
+   - bootRun 로그(우리 fallback의 `log.error`)에 정확한 예외 즉시 노출: `NoResourceFoundException: No static resource api/v1/accounts/me`
+   - **ADR-0007의 fallback 로깅 보강이 실증 가치 발휘** — `swaggerTroubleShoot0515`에서 보강한 한 줄(`log.error`)로 진단이 5분 컷.
+   - 픽스: `GlobalExceptionHandler`에 `@ExceptionHandler(NoResourceFoundException.class) → 404 NOT_FOUND` 한 핸들러 추가.
+7. **재빌드 + 재검증**:
+   - 토큰 + 매핑 없는 경로 → **404 NOT_FOUND** ✅
+   - 토큰 없음 + 매핑 없는 경로 → **401 UNAUTHORIZED** ✅ (필터 → EntryPoint가 먼저 처리. 인증 안 된 사용자에게 리소스 존재 여부 자체 노출 안 됨 — 보안 표준 룰 정합)
+8. **ADR 추가 없음** — Step 6의 결정은 모두 ADR-0007 / ADR-0008의 룰 적용. 새 결정 0개라 ADR 작성 불요.
+9. **남은 일** — Step 5 + Step 6 묶음 커밋 + Step 7 잔액 충전 API.
+
+### 2026-05-15 (저녁) — Step 5: JWT 인프라 일괄 작성
+
+1. **Step 4 커밋 완료** (커밋 `bc5838f`, 25 파일 +1078/-69) — Step 3 이체 확장분도 같이 묶여있어서 한 커밋으로. 메시지에 Step 3 확장 / Step 4 / 사후 픽스 / 학습 자료 4구분 명시.
+2. **Plan mode 진입 → Step 5 plan 작성** — `gentle-snuggling-hartmanis.md`를 Step 4 → Step 5로 overwrite. 결정 5종(jjwt 0.12 / sub=userId만 / refresh 미도입 / DB 조회 X / 401 명시화) + 만들 파일 4개(`security/` 패키지 신설).
+3. **Plan agent 1회 호출**로 구현 디테일 정밀화 — 핵심 발견 6가지:
+   - 예외 처리는 필터 안에서 catch만, EntryPoint가 401 단일 책임 → 관리 포인트 단일화
+   - `ObjectMapper`는 Spring Boot Bean 주입 필수 (직접 new 하면 `JavaTimeModule` 누락으로 `OffsetDateTime` 직렬화 실패)
+   - `shouldNotFilter()` 비권고 — 미래 `/auth/me` 같은 prefix 위험
+   - jjwt 0.11 → 0.12 API 변화 (`setSubject` → `subject`, `parseClaimsJws` → `parseSignedClaims` 등)
+   - `@RestControllerAdvice`는 필터 예외 못 잡음 (DispatcherServlet 진입 전 영역)
+   - principal 타입 `Long`으로 두면 `@AuthenticationPrincipal Long userId`로 받기 깔끔
+4. **코드 4 + 테스트 1 작성** — `security/JwtTokenProvider`, `JwtAuthenticationFilter`, `JwtAuthenticationEntryPoint` + `SecurityConfig` 확장 + `JwtTokenProviderTest` 2건.
+5. **빌드 첫 시도 실패 — Flyway V3 checksum mismatch** 발견:
+   - `MinipayApplicationTests.contextLoads`만 실패, `JwtTokenProviderTest` 2건은 통과
+   - 진단: `Migration checksum mismatch for migration version 3` (test report에서 grep)
+   - 가설: line ending 변환 또는 Flyway 버전 변화. V1=CRLF, V2/V3=LF 확인.
+   - 해결: `.gitattributes`에 `*.sql / *.java / *.yml / *.md` 등 `text eol=lf` 강제 + DB `UPDATE flyway_schema_history SET checksum = NULL WHERE version = '3';`로 다음 부팅에 재계산
+   - 재빌드 → BUILD SUCCESSFUL (3 tests pass)
+6. **bootRun + curl 4종 검증** — 토큰없음 401 ✅ / 잘못된 토큰 401 ✅ / 가입 회귀 201 ✅ / swagger 회귀 200 ✅. 응답 본문 한글 인코딩(`인증이 필요합니다`)도 정상.
+7. **ADR 0008 작성** — JWT stateless 인증 결정 5종. Rationale에 "왜 jjwt? 왜 sub만? 왜 refresh 안 만듦? 왜 DB 조회 X? 왜 401 명시?" 면접 답변지 활용 가능 깊이로. ADR 0007의 "임시 SecurityConfig 재검토 신호" 회수 명시.
+8. **`docs/adr/README.md`** 0008 인덱스 추가.
+9. **남은 일**: 커밋 (Step 5 단위로 분리) + Step 6 로그인 API 진입.
 
 ### 2026-05-15 (오후) — Swagger 트러블슈팅 + uChoice.md 작성
 
