@@ -1,0 +1,24 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/minipay}
+    username: ${DB_USERNAME:minipay}
+    password: ${DB_PASSWORD:minipay}
+  jpa:
+    hibernate.ddl-auto: validate
+    open-in-view: false
+    properties.hibernate:
+      format_sql: true
+      jdbc.time_zone: Asia/Seoul
+    show-sql: true
+  data.redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+  flyway.enabled: true
+
+jwt:
+  secret: ${JWT_SECRET:change-me-to-32bytes-or-longer-secret-key!!}
+  expiration-ms: ${JWT_EXPIRATION_MS:3600000}
+
+springdoc:
+  swagger-ui.path: /swagger
+  api-docs.path: /api-docs
