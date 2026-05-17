@@ -48,5 +48,6 @@ Proposed | Accepted | Deprecated | Superseded by ADR-XXXX
 | [0008](0008-jwt-stateless-auth.md) | JWT 기반 stateless 인증 (검증 시 DB 조회 없음) | Accepted | 5 |
 | [0009](0009-pessimistic-locking.md) | 잔액 변경은 비관적 락(PESSIMISTIC_WRITE) 디폴트 | Accepted | 7~8 |
 | [0010](0010-idempotency-dual-defense.md) | 멱등성은 Redis SETNX(1차) + DB UNIQUE(최후 방어) 이중 방어 | Accepted | 8 |
+| [0011](0011-transfer-lock-ordering.md) | 이체 시 두 계좌 락은 account_id 오름차순 정렬 후 획득 (데드락 회피) | Accepted | 8 |
 
 > ADR은 Step별 코드 작성 후 채움. 코드를 만져보고 나서야 트레이드오프가 진짜로 보이기 때문.

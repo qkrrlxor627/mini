@@ -28,7 +28,7 @@ public class PaymentService {
     @Transactional
     public PaymentResponse pay(Long userId, String idempotencyKey, PaymentRequest req) {
         Account account = accountRepository.findByUserIdForUpdate(userId)
-                .orElseThrow(() -> new AccountNotFoundException(userId));
+                .orElseThrow(() -> AccountNotFoundException.forUser(userId));
 
         Money amount = Money.of(req.amount(), Currency.KRW);
 

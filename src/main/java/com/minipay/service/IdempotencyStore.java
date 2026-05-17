@@ -14,13 +14,21 @@ import java.time.Duration;
 public class IdempotencyStore {
 
     private static final String PAYMENT_PREFIX = "idem:payment:";
+    private static final String TRANSFER_PREFIX = "idem:transfer:";
     private static final Duration DEFAULT_TTL = Duration.ofMinutes(10);
     private static final String IN_PROGRESS = "in-progress";
 
     private final StringRedisTemplate redisTemplate;
 
     public boolean tryAcquirePayment(String key) {
-        String redisKey = PAYMENT_PREFIX + key;
+        return tryAcquire(PAYMENT_PREFIX + key);
+    }
+
+    public boolean tryAcquireTransfer(String key) {
+        return tryAcquire(TRANSFER_PREFIX + key);
+    }
+
+    private boolean tryAcquire(String redisKey) {
         try {
             Boolean acquired = redisTemplate.opsForValue()
                     .setIfAbsent(redisKey, IN_PROGRESS, DEFAULT_TTL);

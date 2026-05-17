@@ -74,6 +74,13 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of("IDEMPOTENCY_KEY_CONFLICT", ex.getMessage()));
     }
 
+    @ExceptionHandler(InvalidTransferTargetException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidTransferTarget(InvalidTransferTargetException ex) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponse.of("INVALID_TRANSFER_TARGET", ex.getMessage()));
+    }
+
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ErrorResponse> handleNoResource(NoResourceFoundException ex) {
         return ResponseEntity

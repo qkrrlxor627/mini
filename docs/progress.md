@@ -10,7 +10,7 @@
 
 ## 🎯 현재 위치
 
-**Step 8-A 완료 — 결제 API + 멱등성 이중 방어(Redis SETNX + DB UNIQUE) + ADR 0009/0010. 검증 6종 통과. 다음은 Step 8-B 이체 API (두 계정 락 정렬, ADR 0011 후보).**
+**Step 8-B 완료 — 이체 API + 두 계정 락 정렬(account_id 오름차순, 데드락 회피) + ADR 0011. 검증 8종 통과. 송금자/수신자 잔액 정합성 완벽. 다음은 Step 9 거래내역 조회 API.**
 
 ### 완료
 - 사전 인프라: `CLAUDE.md` + `docs/adr/README.md` 작성
@@ -56,16 +56,15 @@
 - 진행 방식: Claude 샘플 → 사용자 따라 쓰기 + 주석 채점 워크플로우 병행
 
 ### 다음 액션 (다음 세션 시작 시)
-1. **Step 8-A 커밋** — 메시지 초안: "Step 8-A: 결제 API + 멱등성 이중 방어 + ADR 0009/0010".
-2. **Step 8-B 진입 — 이체 API** (`POST /api/v1/transfers`):
-   - `TransferService` — IdempotencyStore에 `tryAcquireTransfer` 추가(prefix `idem:transfer:`)
-   - 두 계좌 락: `account_id` 오름차순 정렬 후 `PESSIMISTIC_WRITE` 획득 — 데드락 회피
-   - `InvalidTransferTargetException` (자기 자신 / 통화 불일치 / 수신자 부재)
-   - 응답 = 송금자 차감 후 잔액 + 거래 1건(송금자 시점)
-   - ADR 0011 — 두 계정 락 순서 정렬 규칙 분리 (ADR 0006 후속)
-3. **Step 9 진입 — 거래내역 조회 API** (Step 8-B 완료 후):
+1. **Step 8-B 커밋** — 메시지 초안: "Step 8-B: 이체 API + 두 계정 락 정렬 + ADR 0011 + AccountNotFoundException 의미 분리".
+2. **Step 9 진입 — 거래내역 조회 API** (`GET /api/v1/transactions`):
    - `TransactionRepository.findByAccountIdOrCounterpartyAccountId(myAccountId, myAccountId, Pageable)` — 송금자/수신자 양쪽 시점 (ADR 0006). 부분 인덱스 `idx_transactions_counterparty_id_created_at` 활용.
    - `TransactionResponse.from(tx, myAccountId)` — 이체 시 `direction` 필드(SENT/RECEIVED) 계산
+   - `TransactionQueryService.list()` — `@Transactional(readOnly = true)`
+   - `TransactionController` — `GET /api/v1/transactions?page=&size=`
+3. **Step 10 진입 — 동시성 통합 테스트** (Step 9 후):
+   - `@SpringBootTest` (메서드에 `@Transactional` 금지)
+   - 시나리오 3종: 1) 잔액 100,000 + 1,000원 결제 100건 동시 → 잔액 0 / 2) 같은 멱등키 10번 동시 → 1건만 / 3) A↔B 양방향 이체 100건씩 동시 → 데드락 없음, 잔액 보존 (ADR 0011 검증)
 
 ---
 
@@ -134,6 +133,27 @@
   - [x] `GlobalExceptionHandler` 핸들러 2종 추가: `InvalidCredentialsException → 401`, `NoResourceFoundException → 404`
   - [x] 검증 5종: 정상 가입+로그인 200 + JWT 발급 / 잘못된 비번 401 / 없는 이메일 401(동일 응답) / 토큰+매핑없는 경로 404 NOT_FOUND / 토큰없음+매핑없는 경로 401(필터가 먼저 잡음)
   - [x] **부수 발견**: ADR-0007 fallback 로깅 보강이 즉각 가치 발휘 — `NoResourceFoundException`을 단 1회 호출로 식별 가능. 진단→픽스 5분 컷.
+- [x] **Step 8-B — 이체 API + 두 계정 락 정렬** ✅ 완료 (2026-05-17)
+  - [x] ADR 0011 — 두 계정 락은 `account_id` 오름차순 정렬 후 PESSIMISTIC_WRITE (Coffman conditions 중 circular wait 제거). ADR 0006/0009 후속 분리.
+  - [x] `InvalidTransferTargetException` (400) — 자기 자신 / 통화 불일치 통합
+  - [x] `AccountRepository`: `findByUserId` (락 없음, 송금자 ID 식별용) + `findByIdForUpdate(Long)` (수신자 락) 추가
+  - [x] `IdempotencyStore.tryAcquireTransfer` — prefix `idem:transfer:`로 결제와 네임스페이스 분리. `tryAcquire` 헬퍼로 공통화.
+  - [x] `TransferRequest` (`@NotNull counterpartyAccountId` + `@DecimalMin(1) amount`) / `TransferResponse.from(tx)`
+  - [x] `TransferService.transfer()`: ① 송금자 ID 식별(락 없음) ② 자기 자신 검증 ③ 멱등 replay 검증 ④ `Math.min/max`로 `firstId/secondId` 정렬 ⑤ 두 번 `findByIdForUpdate` ⑥ sender/receiver 객체 분리 ⑦ `sender.deduct` + `receiver.charge` ⑧ `Transaction.transfer` 저장 + self-heal
+  - [x] `TransferController` POST `/api/v1/transfers` + `@RequestHeader Idempotency-Key` + 빈 값 검증
+  - [x] `GlobalExceptionHandler`: `InvalidTransferTarget → 400 INVALID_TRANSFER_TARGET` 추가
+  - [x] `AccountNotFoundException` 의미 분리: `forUser(userId)` / `forAccount(accountId)` 정적 팩토리 — 메시지가 의미 따라 다르게 박힘. AccountService / PaymentService / TransferService 3곳 호출 갱신.
+  - [x] 검증 8종 전부 통과:
+    - 정상 이체 3000 → 200 (송금자 10000→7000, 수신자 0→3000)
+    - 같은 키+같은 본문 → 200 replay (transactionId=7 동일)
+    - 같은 키+다른 금액 → 409 IDEMPOTENCY_KEY_CONFLICT
+    - 자기 자신 이체 → 400 INVALID_TRANSFER_TARGET (락 진입 전 사전 거부)
+    - 잔액 부족 → 400 INSUFFICIENT_BALANCE
+    - 멱등키 누락 → 400 MISSING_IDEMPOTENCY_KEY
+    - 수신자 부재 → 404 ACCOUNT_NOT_FOUND ("accountId=999999")
+    - 신규 키+정상 이체 1000 → 200 (송금자 6000, 수신자 4000)
+  - [x] DB 검증: 송금자 6000 / 수신자 4000 / **차감 = 증가 정확히 보존** / TRANSFER 2건 / `counterparty_account_id=9` / `balance_after`는 송금자 시점(ADR 0006 정합)
+  - [x] Redis: 4개 멱등키 저장(정상 2건 + 잔액 부족·수신자 부재 1건씩 — SETNX 통과 후 거절돼서 키만 남음). **자기 자신 이체(KEY2)는 SETNX 진입 전 거부라 Redis에 키 없음** — 코드 흐름 정확.
 - [x] **Step 8-A — 결제 API + 멱등성** ✅ 완료 (2026-05-17)
   - [x] ADR 0009 — 비관적 락 선택 (낙관적 락 비교, 면접 답변지 깊이)
   - [x] ADR 0010 — 멱등성 Redis SETNX(1차) + DB UNIQUE(최후 방어) 이중 방어 / TTL 10분 / 응답 캐시 = DB 재조회 / Redis 장애 fallback / 같은 키+다른 본문 → 409
@@ -163,11 +183,6 @@
   - [x] 검증 5종: 정상 충전 10000 200 / 추가 충전 5000 → 잔액 누적 15000 ✅ / 0원 400 VALIDATION_FAILED / 토큰없음 401 / 잘못된 토큰 401
   - [x] **부수 발견**: PowerShell curl이 한국어 본문을 cp949로 보내 `JSON parse error: Invalid UTF-8 middle byte 0xe6` 발생 → fallback `log.error`(ADR-0007) 한 줄로 5초 진단. 픽스: ASCII 이름으로 우회 (앱은 무관). 면접 답변지 소재.
   - [x] 새 결정 0개 — 비관적 락(ADR 0006 컨텍스트) / KRW 고정(ADR 0007) / 명명 예외(컨벤션) 모두 기존 결정 적용. ADR 추가 없음.
-- [ ] **Step 8-B — 이체 API** (두 계정 락 정렬 — ADR 0011 후보)
-  - 자기 자신 이체 거부 (`InvalidTransferTargetException`)
-  - 송금자/수신자 `account_id` 오름차순 정렬 후 PESSIMISTIC_WRITE 획득 (데드락 회피)
-  - `TransferService` — 멱등성 패턴은 `PaymentService`와 공통 (IdempotencyStore 키 prefix만 `idem:transfer:`로 추가 예정)
-  - 검증 4종: 정상 이체 / 자기 자신 거부 / 잔액 부족 / 같은 키 두 번
 - [ ] Step 9 — 거래내역 조회 API
 - [ ] Step 10 ⭐ — 동시성 통합 테스트
 - [ ] Step 11 — Swagger 시나리오 검증
@@ -184,6 +199,38 @@
 ---
 
 ## 💬 마지막 대화 요약
+
+### 2026-05-17 (밤) — Step 8-B: 이체 API + 두 계정 락 정렬
+
+1. **진입 결정** — 새 결정 1개(ADR 0011). 자기 자신 거부 / 통화 일치 / 수신자 부재 / 멱등성 패턴 재사용은 모두 기존 결정의 응용.
+2. **ADR 0011 작성** — 두 계좌 락은 `account_id` 오름차순 정렬 후 PESSIMISTIC_WRITE 획득. Coffman conditions 중 circular wait 제거 → 데드락 원천 차단. ADR 0006(이체 모델링)/0009(비관적 락)의 후속 분리. 대안 3종(B안 user_id 정렬 / C안 재시도) 기각 사유 박음. PG 데드락 감지(40P01)는 safety net이고 정상 경로에서 절대 발생 안 하도록 설계. 재검토 신호 4종.
+3. **파일 9종 작성/수정**:
+   - `exception/InvalidTransferTargetException` (400)
+   - `repository/AccountRepository`: `findByUserId`(락 없음, 송금자 ID 식별용) + `findByIdForUpdate(accountId)`(수신자 락) 추가
+   - `service/IdempotencyStore` 확장: `tryAcquireTransfer` + 공통 `tryAcquire(redisKey)` 헬퍼. prefix `idem:transfer:`.
+   - `dto/TransferRequest` (`@NotNull counterpartyAccountId` + `@DecimalMin(1)` + `@Digits(15,4)`) / `TransferResponse.from(tx)`
+   - `service/TransferService` — `Math.min/max`로 정렬 후 두 번 `findByIdForUpdate`, 정렬된 객체에서 sender/receiver 분기, `sender.deduct + receiver.charge + Transaction.transfer + self-heal`. **자기 자신 검증은 SETNX 진입 전** (Redis 키 누적 방지).
+   - `controller/TransferController` — POST `/api/v1/transfers` + `@RequestHeader Idempotency-Key`
+   - `exception/GlobalExceptionHandler`: `InvalidTransferTarget → 400 INVALID_TRANSFER_TARGET`
+   - `docs/adr/0011-transfer-lock-ordering.md` + README 인덱스 갱신
+4. **컴파일 + 빌드** — compileJava 13s / build 16s. BUILD SUCCESSFUL (3 tests + Hibernate validate).
+5. **검증 8종 전부 ✅**:
+   - 정상 이체 3000 → 200 (transactionId=7, 송금자 10000→7000, 수신자 0→3000)
+   - 같은 키+같은 본문 → 200 **replay** (transactionId=7 동일)
+   - 같은 키+다른 금액 → 409 IDEMPOTENCY_KEY_CONFLICT
+   - **자기 자신 이체 → 400 INVALID_TRANSFER_TARGET** (락 진입 전 사전 거부, Redis에도 키 없음)
+   - 잔액 부족 → 400 INSUFFICIENT_BALANCE
+   - 멱등키 누락 → 400 MISSING_IDEMPOTENCY_KEY
+   - 수신자 부재 → 404 ACCOUNT_NOT_FOUND
+   - 신규 키+1000 → 200 (송금자 6000, 수신자 4000)
+6. **DB 정합성 완벽** — 송금자 6000 / 수신자 4000 / **차감 = 증가 정확히 보존**. TRANSFER 2건, `counterparty_account_id=9`, `balance_after`는 송금자 시점(ADR 0006 정합).
+7. **개선 1건 — AccountNotFoundException 의미 분리**:
+   - 발견: 수신자 부재 시 메시지가 "userId=999999"로 나옴 — counterpartyAccountId인데 userId로 박혀 의미 충돌.
+   - 픽스: `forUser(Long)` / `forAccount(Long)` 정적 팩토리로 분리. private 생성자. 호출자 3곳(AccountService / PaymentService / TransferService) 갱신.
+   - 재검증: 메시지가 "accountId=999999"로 정확히 박힘 ✅.
+   - 학습 가치: 한 예외가 두 가지 의미를 표현하면 메시지가 곧 사고. 정적 팩토리 이름이 의미를 강제하는 패턴.
+8. **Redis 키 분포 자체 검증** — 정상 이체 2건 + 잔액 부족·수신자 부재(SETNX 후 거절) 1건씩 = 4개 키. 자기 자신 이체(KEY2)는 SETNX 진입 전 거부라 0개. **검증 흐름이 ADR 0010의 graceful degradation 케이스와 ADR 0011의 사전 거부 케이스를 동시에 실증**.
+9. **남은 일** — Step 8-B 커밋 → Step 9 거래내역 조회 → Step 10 동시성 통합 테스트(ADR 0011의 진짜 검증).
 
 ### 2026-05-17 (저녁) — Step 8-A: 결제 API + 멱등성 이중 방어
 
