@@ -10,7 +10,7 @@
 
 ## 🎯 현재 위치
 
-**Step 8-B 완료 — 이체 API + 두 계정 락 정렬(account_id 오름차순, 데드락 회피) + ADR 0011. 검증 8종 통과. 송금자/수신자 잔액 정합성 완벽. 다음은 Step 9 거래내역 조회 API.**
+**Step 9 완료 — 거래내역 조회 API + direction enum(SENT/RECEIVED/SELF) + ADR 0006 트레이드오프 첫 실전. 검증 6종 통과. 다음은 Step 10 동시성 통합 테스트(ADR 0011 진짜 검증).**
 
 ### 완료
 - 사전 인프라: `CLAUDE.md` + `docs/adr/README.md` 작성
@@ -56,15 +56,17 @@
 - 진행 방식: Claude 샘플 → 사용자 따라 쓰기 + 주석 채점 워크플로우 병행
 
 ### 다음 액션 (다음 세션 시작 시)
-1. **Step 8-B 커밋** — 메시지 초안: "Step 8-B: 이체 API + 두 계정 락 정렬 + ADR 0011 + AccountNotFoundException 의미 분리".
-2. **Step 9 진입 — 거래내역 조회 API** (`GET /api/v1/transactions`):
-   - `TransactionRepository.findByAccountIdOrCounterpartyAccountId(myAccountId, myAccountId, Pageable)` — 송금자/수신자 양쪽 시점 (ADR 0006). 부분 인덱스 `idx_transactions_counterparty_id_created_at` 활용.
-   - `TransactionResponse.from(tx, myAccountId)` — 이체 시 `direction` 필드(SENT/RECEIVED) 계산
-   - `TransactionQueryService.list()` — `@Transactional(readOnly = true)`
-   - `TransactionController` — `GET /api/v1/transactions?page=&size=`
-3. **Step 10 진입 — 동시성 통합 테스트** (Step 9 후):
-   - `@SpringBootTest` (메서드에 `@Transactional` 금지)
-   - 시나리오 3종: 1) 잔액 100,000 + 1,000원 결제 100건 동시 → 잔액 0 / 2) 같은 멱등키 10번 동시 → 1건만 / 3) A↔B 양방향 이체 100건씩 동시 → 데드락 없음, 잔액 보존 (ADR 0011 검증)
+1. **Step 9 커밋** — 메시지 초안: "Step 9: 거래내역 조회 API + direction enum + PageResponse".
+2. **Step 10 진입 — 동시성 통합 테스트** ⭐ (ADR 0009/0010/0011 진짜 검증):
+   - `src/test/.../service/PaymentConcurrencyTest` — `@SpringBootTest` (메서드에 `@Transactional` 금지 — CLAUDE.md 룰)
+   - 시나리오 3종:
+     1) 잔액 100,000 + 1,000원 결제 100건 동시 → 잔액 0, success=100, tx=100 (ADR 0009 비관적 락 검증)
+     2) 같은 멱등키 10번 동시 → 1건만 처리, 잔액 99,000 (ADR 0010 멱등성 검증)
+     3) **A↔B 양방향 이체 100건씩 동시 → 데드락 없음, 잔액 보존** (ADR 0011 두 계정 락 정렬 검증)
+   - 헬퍼: `setupUserWithBalance(email, balance)` — 회원가입+로그인+충전 한 번에
+   - **락 빼고 깨뜨려보기 → 다시 복구**도 필수 (uShould.md 권장, 면접 답변 깊이)
+3. **Step 11 — Swagger 시나리오 검증** (마지막 단계):
+   - ready.md §4의 12개 시나리오를 Swagger UI에서 실제 통과
 
 ---
 
@@ -133,6 +135,22 @@
   - [x] `GlobalExceptionHandler` 핸들러 2종 추가: `InvalidCredentialsException → 401`, `NoResourceFoundException → 404`
   - [x] 검증 5종: 정상 가입+로그인 200 + JWT 발급 / 잘못된 비번 401 / 없는 이메일 401(동일 응답) / 토큰+매핑없는 경로 404 NOT_FOUND / 토큰없음+매핑없는 경로 401(필터가 먼저 잡음)
   - [x] **부수 발견**: ADR-0007 fallback 로깅 보강이 즉각 가치 발휘 — `NoResourceFoundException`을 단 1회 호출로 식별 가능. 진단→픽스 5분 컷.
+- [x] **Step 9 — 거래내역 조회 API** ✅ 완료 (2026-05-17)
+  - [x] `TransactionDirection` enum (`SELF` / `SENT` / `RECEIVED`) — 응답 DTO 전용. enum 선호는 ADR 0002 일관성.
+  - [x] `TransactionResponse` record + `from(tx, myAccountId)` 정적 팩토리 — direction 자동 분기, **수신자 시점 balanceAfter=null** (ADR 0006 트레이드오프 정직 표현)
+  - [x] `PageResponse<T>` 공용 record + `of(Page, Function)` 정적 팩토리 — Spring Page 직렬화 피하고 자체 포맷 통제
+  - [x] `TransactionRepository.findByAccountIdOrCounterpartyAccountIdOrderByCreatedAtDesc(Long, Long, Pageable)` — Spring Data 메서드 이름 파싱, PostgreSQL BitmapOr planner 활용 (부분 인덱스 `idx_transactions_counterparty_id_created_at`)
+  - [x] `TransactionQueryService.list(userId, Pageable)` — `@Transactional(readOnly=true)` + account 조회 → repository 호출 → `PageResponse.of(page, tx -> from(tx, accountId))`
+  - [x] `TransactionController` GET `/api/v1/transactions?page=&size=` — `@RequestParam(defaultValue)` + `page>=0` 검증 + `size 상한 100` 검증 (IllegalArgumentException → 기존 핸들러 활용)
+  - [x] 검증 6종 전부 통과:
+    - 송금자 시점 → 3건 (CHARGE 1건 SELF + TRANSFER 2건 SENT). 최신순 정렬.
+    - 수신자 시점 → 2건 (TRANSFER 2건 RECEIVED, balanceAfter=null)
+    - 페이지네이션 page=0&size=1 → 1건, totalElements=3, totalPages=3
+    - page=99 → 빈 content, 200
+    - size=200 → 400 INVALID_ARGUMENT (상한 검증)
+    - 토큰 없음 → 401 UNAUTHORIZED
+  - [x] **이체 1건이 송금자/수신자 양쪽 시점에서 모두 보임** (transactionId=7, 8) — OR 조건 조회 + direction 자동 분기 정합 완벽
+  - [x] 새 ADR 없음 — ADR 0002(enum STRING) / ADR 0006(이체 단일 행 + 양쪽 시점 조회) 트레이드오프의 첫 실전. direction enum과 balanceAfter null 처리가 ADR 0006의 정직한 표현.
 - [x] **Step 8-B — 이체 API + 두 계정 락 정렬** ✅ 완료 (2026-05-17)
   - [x] ADR 0011 — 두 계정 락은 `account_id` 오름차순 정렬 후 PESSIMISTIC_WRITE (Coffman conditions 중 circular wait 제거). ADR 0006/0009 후속 분리.
   - [x] `InvalidTransferTargetException` (400) — 자기 자신 / 통화 불일치 통합
@@ -183,7 +201,6 @@
   - [x] 검증 5종: 정상 충전 10000 200 / 추가 충전 5000 → 잔액 누적 15000 ✅ / 0원 400 VALIDATION_FAILED / 토큰없음 401 / 잘못된 토큰 401
   - [x] **부수 발견**: PowerShell curl이 한국어 본문을 cp949로 보내 `JSON parse error: Invalid UTF-8 middle byte 0xe6` 발생 → fallback `log.error`(ADR-0007) 한 줄로 5초 진단. 픽스: ASCII 이름으로 우회 (앱은 무관). 면접 답변지 소재.
   - [x] 새 결정 0개 — 비관적 락(ADR 0006 컨텍스트) / KRW 고정(ADR 0007) / 명명 예외(컨벤션) 모두 기존 결정 적용. ADR 추가 없음.
-- [ ] Step 9 — 거래내역 조회 API
 - [ ] Step 10 ⭐ — 동시성 통합 테스트
 - [ ] Step 11 — Swagger 시나리오 검증
 
@@ -199,6 +216,30 @@
 ---
 
 ## 💬 마지막 대화 요약
+
+### 2026-05-17 (밤 늦게) — Step 9: 거래내역 조회 API
+
+1. **진입 결정** — 새 ADR 없음. 미세 결정 4개(OR 조회 / direction enum / 수신자 balanceAfter null / PageResponse 자체 포맷). 모두 기존 ADR(0002 enum / 0006 이체 단일 행)의 첫 실전 적용.
+2. **파일 6종 작성**:
+   - `domain/TransactionDirection` enum — `SELF` / `SENT` / `RECEIVED`. 응답 DTO 전용. 컨벤션 일관성(ADR 0002 enum 선호).
+   - `dto/TransactionResponse` record — `from(tx, myAccountId)` 정적 팩토리. **direction 자동 분기** (CHARGE/PAYMENT → SELF, TRANSFER → 송금자/수신자 비교로 SENT/RECEIVED). **수신자 시점 balanceAfter=null** (ADR 0006 트레이드오프 정직 표현).
+   - `dto/PageResponse<T>` record — `of(Page, Function)` 정적 팩토리. Spring `Page` 직렬화 피하고 자체 포맷(`content`/`page`/`size`/`totalElements`/`totalPages`).
+   - `repository/TransactionRepository.findByAccountIdOrCounterpartyAccountIdOrderByCreatedAtDesc(Long, Long, Pageable)` — Spring Data 메서드 이름 파싱. PostgreSQL BitmapOr planner + 부분 인덱스 활용.
+   - `service/TransactionQueryService.list(userId, Pageable)` — `@Transactional(readOnly=true)`. account 조회 → repository → `PageResponse.of(page, tx -> from(tx, accountId))`.
+   - `controller/TransactionController` GET `/api/v1/transactions?page=&size=` — `@RequestParam(defaultValue="0"|"20")` + page≥0 / size 1~100 검증 (IllegalArgumentException → 기존 핸들러로 400 매핑).
+3. **컴파일 + 빌드** — compileJava 13s / build 17s. BUILD SUCCESSFUL (3 tests + Hibernate validate).
+4. **검증 6종 전부 ✅**:
+   - 송금자 시점 → 3건 (CHARGE 10000 SELF + TRANSFER 3000/1000 SENT). 최신순 정렬 정확.
+   - 수신자 시점 → 2건 (TRANSFER 3000/1000 RECEIVED, **balanceAfter=null**)
+   - page=0&size=1 → 1건, totalElements=3, totalPages=3 ✅
+   - page=99 → 빈 content, 200 ✅
+   - size=200 → 400 INVALID_ARGUMENT ("size는 1 이상 100 이하여야 합니다")
+   - 토큰 없음 → 401 UNAUTHORIZED
+5. **핵심 검증** — 이체 1건(transactionId=7, 8)이 **송금자/수신자 양쪽 시점에서 모두 보이고 direction이 자동으로 분기**. OR 조건 조회 + from(tx, myAccountId) 매핑이 정합 완벽. ADR 0006의 "단일 행으로 양쪽 시점 표현" 결정이 응답에서 자연스럽게 드러남.
+6. **부수 결정 — direction enum 도입 근거**: String("SENT")로 가도 동작은 같지만 enum 선호(ADR 0002 일관성) + 컴파일러가 매핑 누락 잡아줌 + 응답 JSON에서도 자명한 값(`"direction":"SENT"`). 한 곳에서만 쓰여도 도입 가치 있음.
+7. **부수 결정 — 수신자 balanceAfter=null 정직성**: ADR 0006에서 "수신자 시점 잔액은 행에 없음"이 트레이드오프로 명시됨. 응답에서 송금자 시점 값을 그대로 노출하면 의미 혼동. null로 두는 게 정직. 수신자가 자기 잔액 알려면 별도 API(`GET /accounts/me` 등) — Step 9 범위 외.
+8. **부수 결정 — PageResponse 자체 포맷**: Spring `Page` 직접 직렬화하면 `pageable`/`sort`/`first`/`last` 등 18+ 필드 노출됨. 우리 API 계약은 5필드(`content`/`page`/`size`/`totalElements`/`totalPages`)면 충분. 자체 record로 통제 → 응답 계약 명확.
+9. **남은 일** — Step 9 단독 커밋 → Step 10 동시성 통합 테스트(ADR 0009/0010/0011 진짜 검증).
 
 ### 2026-05-17 (밤) — Step 8-B: 이체 API + 두 계정 락 정렬
 
