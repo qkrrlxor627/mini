@@ -78,6 +78,14 @@ docker compose up -d   # postgres + redis
 | [`docs/swagger-e2e-0518.md`](docs/swagger-e2e-0518.md) | **Step 11 E2E 12종 검증 결과 + Swagger UI 가이드 + 면접 답변지 매핑** |
 | [`sql.md`](sql.md) | ERD Cloud용 MySQL DDL |
 
+### 🚀 Mini Pay 이후 (afterpjt 시리즈)
+
+| 파일 | 역할 |
+|---|---|
+| [`docs/afterpjtForFe.md`](docs/afterpjtForFe.md) | **프론트엔드 인수인계 가이드** — Swagger / 인증 흐름 / 클라이언트 책임(Idempotency-Key) / 에러 카탈로그 12종 / 데이터 포맷 함정 / CORS / 화면 시나리오 매핑 |
+| [`docs/afterpjtStandard.md`](docs/afterpjtStandard.md) | **다음 백엔드 프로젝트 표준 가이드** — Mini Pay 회고 + 업계 표준(12-Factor App / DDD / ADR / Accelerate / OWASP) 6-Phase 라이프사이클 |
+| [`docs/afterpjtLearn.md`](docs/afterpjtLearn.md) | **Mini Pay 이후 심화 학습** — Mini Pay 코드 줄 단위 인용 + 12개 파트(자바 / JVM / IDE / 문서 사고 / Git / 코드 리뷰 / 자료구조 / DB / SOLID / 네트워크 / OWASP / 분산 시스템) |
+
 ---
 
 ## 🧭 Architecture Decision Records (ADR)
