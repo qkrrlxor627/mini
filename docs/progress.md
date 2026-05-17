@@ -10,7 +10,7 @@
 
 ## 🎯 현재 위치
 
-**Step 10 완료 — 동시성 통합 테스트 3종 전부 통과 + JPA 1차 캐시 함정 발견·해결(TransferService 락 미적용 버그 fix). ADR 0009/0010/0011 진짜 검증 완료. 다음은 Step 11 Swagger 시나리오 검증(마지막).**
+**🎉 Mini Pay 프로젝트 완료 — Step 0~11 전부 통과. ADR 11장, 통합 테스트 3종(ADR 0009/0010/0011 실증), Swagger E2E 12종(ready.md §4 골든 패스 6 + 엣지 6) 전부 통과. 면접 답변지 자료 충실.**
 
 ### 완료
 - 사전 인프라: `CLAUDE.md` + `docs/adr/README.md` 작성
@@ -55,13 +55,10 @@
 - ADR 0005: Transaction → Account는 ID 참조 (`Long accountId`)
 - 진행 방식: Claude 샘플 → 사용자 따라 쓰기 + 주석 채점 워크플로우 병행
 
-### 다음 액션 (다음 세션 시작 시)
-1. **Step 10 커밋** — 메시지 초안: "Step 10: 동시성 통합 테스트 3종 + JPA 1차 캐시 함정 픽스(findIdByUserId)".
-2. **Step 11 진입 — Swagger 시나리오 검증** (마지막 단계):
-   - `application.yml`의 `springdoc.swagger-ui.path: /swagger` 확인
-   - ready.md §4의 12개 시나리오를 Swagger UI에서 실제 통과
-   - 골든 패스 6단계(signup → login → charge → payment → transfer → transactions) + 엣지 케이스 6종
-3. (선택) **uChoice.md / uLearn.md / progress.md 면접 답변지 정리** — 11단계 마지막 마무리 작업으로 ADR 11장과 핵심 결정 4종(비관적 락 / 멱등성 / 데드락 회피 / JPA 1차 캐시 함정) 인덱스화
+### 다음 액션 (프로젝트 완료 후)
+1. **Step 11 커밋** — 메시지 초안: "Step 11: Swagger E2E 시나리오 12종 + SwaggerConfig Bearer 인증".
+2. **(선택) 면접 답변지 정리** — uChoice.md / uLearn.md 갱신해서 ADR 11장 + 4대 결정(비관적 락 / 멱등성 / 두 계정 락 정렬 / JPA 1차 캐시 함정) 인덱스화. 한 번 더 훑어보기.
+3. **(선택) 학습 확장 후보** — Step 0에서 메모해둔 모니터링 스택(Actuator/Prometheus/Grafana), AFTER_COMMIT 이벤트 도입(ADR 0011 후보), 토큰 블랙리스트(ADR 0008 재검토 신호) 등.
 
 ---
 
@@ -130,6 +127,14 @@
   - [x] `GlobalExceptionHandler` 핸들러 2종 추가: `InvalidCredentialsException → 401`, `NoResourceFoundException → 404`
   - [x] 검증 5종: 정상 가입+로그인 200 + JWT 발급 / 잘못된 비번 401 / 없는 이메일 401(동일 응답) / 토큰+매핑없는 경로 404 NOT_FOUND / 토큰없음+매핑없는 경로 401(필터가 먼저 잡음)
   - [x] **부수 발견**: ADR-0007 fallback 로깅 보강이 즉각 가치 발휘 — `NoResourceFoundException`을 단 1회 호출로 식별 가능. 진단→픽스 5분 컷.
+- [x] **Step 11 — Swagger E2E 시나리오 검증** ✅ 완료 (2026-05-18)
+  - [x] `SwaggerConfig` — `OpenAPI` Bean + `SecurityScheme(HTTP, bearer, JWT)` + `SecurityRequirement` 전역 적용. Swagger UI Authorize 🔓 버튼으로 토큰 한 번 입력하면 모든 protected API 자동 부착.
+  - [x] 빌드 + 부팅 + `http://localhost:8080/swagger` redirect → `/swagger-ui/index.html` 200 OK. `/api-docs`에 `bearerAuth`/`bearer`/`JWT` 모두 노출 확인.
+  - [x] curl 자동 검증 **12/12 전부 통과**:
+    - 골든 패스 6: signup → login → charge → payment → transfer → transactions (Alice 시점 3건 + Bob 시점 RECEIVED 1건)
+    - 엣지 6: 잔액 초과 결제(400) / 같은 키 replay(200 동일 txId) / 자기 자신 이체(400) / 잔액 초과 이체(400) / JWT 누락(401) / 중복 이메일(409)
+  - [x] `docs/swagger-e2e-0518.md` 작성 — 검증 결과 + Swagger UI 수동 가이드 + 면접 답변지 매핑(5종 질문 → 답변 출발점) 정리
+  - [x] 새 ADR 없음 — Swagger 인증 통합은 UX 개선이라 ADR 사안 아님
 - [x] **Step 10 ⭐ — 동시성 통합 테스트** ✅ 완료 (2026-05-17)
   - [x] `src/test/.../service/ConcurrencyTest` — `@SpringBootTest` (메서드에 `@Transactional` 금지, CLAUDE.md 룰 준수)
   - [x] 헬퍼 `setupUserWithBalance(BigDecimal)` — `authService.signup` + `accountService.charge` 한 번에. unique timestamp 이메일.
@@ -209,7 +214,6 @@
   - [x] 검증 5종: 정상 충전 10000 200 / 추가 충전 5000 → 잔액 누적 15000 ✅ / 0원 400 VALIDATION_FAILED / 토큰없음 401 / 잘못된 토큰 401
   - [x] **부수 발견**: PowerShell curl이 한국어 본문을 cp949로 보내 `JSON parse error: Invalid UTF-8 middle byte 0xe6` 발생 → fallback `log.error`(ADR-0007) 한 줄로 5초 진단. 픽스: ASCII 이름으로 우회 (앱은 무관). 면접 답변지 소재.
   - [x] 새 결정 0개 — 비관적 락(ADR 0006 컨텍스트) / KRW 고정(ADR 0007) / 명명 예외(컨벤션) 모두 기존 결정 적용. ADR 추가 없음.
-- [ ] Step 11 — Swagger 시나리오 검증 (ready.md §4의 12개 시나리오를 Swagger UI에서 통과)
 
 ---
 
@@ -223,6 +227,30 @@
 ---
 
 ## 💬 마지막 대화 요약
+
+### 2026-05-18 — Step 11: Swagger E2E 시나리오 12종 + 프로젝트 종결
+
+1. **시나리오 짚기** — ready.md §4의 12개(골든 6 + 엣지 6). 새 ADR 없음. 결정 1건: Swagger UI Bearer JWT 인증 통합 (UX 개선, ADR 사안 아님).
+2. **`SwaggerConfig.java` 작성** — `OpenAPI` Bean + `Components.addSecuritySchemes("bearerAuth", SecurityScheme(HTTP, bearer, JWT))` + `SecurityRequirement` 전역 적용. Authorize 🔓 버튼 한 번 입력으로 모든 protected API 자동 부착.
+3. **빌드 + 부팅** — build SUCCESSFUL (21s, 3 tests). `http://localhost:8080/swagger` 302 → `/swagger-ui/index.html` 200 OK. `/api-docs`에 `bearerAuth`/`bearer`/`JWT` 모두 노출 확인.
+4. **curl 자동 검증 12/12 전부 통과** ✅:
+   - **골든 패스 6**:
+     1) Alice signup → 201 (userId=22)
+     2) Alice login → 200 + JWT
+     3) charge 10000 → 200 (잔액 10000)
+     4) payment 2000 → 200 (잔액 8000)
+     5) transfer 3000 → Bob → 200 (Alice 잔액 5000, Bob 잔액 +3000)
+     6) transactions Alice → 200, 3건 (SENT + SELF + SELF) / Bob → 1건 (RECEIVED, balanceAfter=null)
+   - **엣지 6**:
+     7) payment 잔액 초과 → 400 INSUFFICIENT_BALANCE
+     8) payment 동일 키 재전송 → 200 + **두 응답 transactionId 동일(927)** — ADR 0010 idempotent replay 실증
+     9) transfer 자기 자신 → 400 INVALID_TRANSFER_TARGET
+     10) transfer 잔액 초과 → 400 INSUFFICIENT_BALANCE
+     11) payment JWT 누락 → 401 UNAUTHORIZED
+     12) signup 중복 이메일 → 409 DUPLICATE_EMAIL
+5. **`docs/swagger-e2e-0518.md` 작성** — 12개 결과표 + 핵심 보이지 않는 동작 5종(이체 양쪽 시점 / 수신자 balanceAfter null / replay txId 동일 / 401 명시화 / 보안 룰) + Swagger UI 수동 가이드 + 면접 답변지 매핑 5종.
+6. **프로젝트 종결** 🎉 — Step 0~11 전부 통과. ADR 11장 + 통합 테스트 3종(ADR 0009/0010/0011) + Swagger E2E 12종.
+7. **남은 일 (선택)** — Step 11 단독 커밋. 그 후 면접 답변지로 uChoice.md/uLearn.md 갱신할지 결정.
 
 ### 2026-05-17 (밤 더 늦게) — Step 10 ⭐: 동시성 통합 테스트 + JPA 1차 캐시 함정
 
