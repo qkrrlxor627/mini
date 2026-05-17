@@ -28,9 +28,8 @@ public class TransferService {
 
     @Transactional
     public TransferResponse transfer(Long userId, String idempotencyKey, TransferRequest req) {
-        Account senderProbe = accountRepository.findByUserId(userId)
+        long senderId = accountRepository.findIdByUserId(userId)
                 .orElseThrow(() -> AccountNotFoundException.forUser(userId));
-        long senderId = senderProbe.getId();
         long receiverId = req.counterpartyAccountId();
 
         if (senderId == receiverId) {

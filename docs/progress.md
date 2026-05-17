@@ -10,7 +10,7 @@
 
 ## 🎯 현재 위치
 
-**Step 9 완료 — 거래내역 조회 API + direction enum(SENT/RECEIVED/SELF) + ADR 0006 트레이드오프 첫 실전. 검증 6종 통과. 다음은 Step 10 동시성 통합 테스트(ADR 0011 진짜 검증).**
+**Step 10 완료 — 동시성 통합 테스트 3종 전부 통과 + JPA 1차 캐시 함정 발견·해결(TransferService 락 미적용 버그 fix). ADR 0009/0010/0011 진짜 검증 완료. 다음은 Step 11 Swagger 시나리오 검증(마지막).**
 
 ### 완료
 - 사전 인프라: `CLAUDE.md` + `docs/adr/README.md` 작성
@@ -56,17 +56,12 @@
 - 진행 방식: Claude 샘플 → 사용자 따라 쓰기 + 주석 채점 워크플로우 병행
 
 ### 다음 액션 (다음 세션 시작 시)
-1. **Step 9 커밋** — 메시지 초안: "Step 9: 거래내역 조회 API + direction enum + PageResponse".
-2. **Step 10 진입 — 동시성 통합 테스트** ⭐ (ADR 0009/0010/0011 진짜 검증):
-   - `src/test/.../service/PaymentConcurrencyTest` — `@SpringBootTest` (메서드에 `@Transactional` 금지 — CLAUDE.md 룰)
-   - 시나리오 3종:
-     1) 잔액 100,000 + 1,000원 결제 100건 동시 → 잔액 0, success=100, tx=100 (ADR 0009 비관적 락 검증)
-     2) 같은 멱등키 10번 동시 → 1건만 처리, 잔액 99,000 (ADR 0010 멱등성 검증)
-     3) **A↔B 양방향 이체 100건씩 동시 → 데드락 없음, 잔액 보존** (ADR 0011 두 계정 락 정렬 검증)
-   - 헬퍼: `setupUserWithBalance(email, balance)` — 회원가입+로그인+충전 한 번에
-   - **락 빼고 깨뜨려보기 → 다시 복구**도 필수 (uShould.md 권장, 면접 답변 깊이)
-3. **Step 11 — Swagger 시나리오 검증** (마지막 단계):
+1. **Step 10 커밋** — 메시지 초안: "Step 10: 동시성 통합 테스트 3종 + JPA 1차 캐시 함정 픽스(findIdByUserId)".
+2. **Step 11 진입 — Swagger 시나리오 검증** (마지막 단계):
+   - `application.yml`의 `springdoc.swagger-ui.path: /swagger` 확인
    - ready.md §4의 12개 시나리오를 Swagger UI에서 실제 통과
+   - 골든 패스 6단계(signup → login → charge → payment → transfer → transactions) + 엣지 케이스 6종
+3. (선택) **uChoice.md / uLearn.md / progress.md 면접 답변지 정리** — 11단계 마지막 마무리 작업으로 ADR 11장과 핵심 결정 4종(비관적 락 / 멱등성 / 데드락 회피 / JPA 1차 캐시 함정) 인덱스화
 
 ---
 
@@ -135,6 +130,19 @@
   - [x] `GlobalExceptionHandler` 핸들러 2종 추가: `InvalidCredentialsException → 401`, `NoResourceFoundException → 404`
   - [x] 검증 5종: 정상 가입+로그인 200 + JWT 발급 / 잘못된 비번 401 / 없는 이메일 401(동일 응답) / 토큰+매핑없는 경로 404 NOT_FOUND / 토큰없음+매핑없는 경로 401(필터가 먼저 잡음)
   - [x] **부수 발견**: ADR-0007 fallback 로깅 보강이 즉각 가치 발휘 — `NoResourceFoundException`을 단 1회 호출로 식별 가능. 진단→픽스 5분 컷.
+- [x] **Step 10 ⭐ — 동시성 통합 테스트** ✅ 완료 (2026-05-17)
+  - [x] `src/test/.../service/ConcurrencyTest` — `@SpringBootTest` (메서드에 `@Transactional` 금지, CLAUDE.md 룰 준수)
+  - [x] 헬퍼 `setupUserWithBalance(BigDecimal)` — `authService.signup` + `accountService.charge` 한 번에. unique timestamp 이메일.
+  - [x] 시나리오 1 (ADR 0009): 잔액 100,000 + 1,000원 결제 100건 동시 → **잔액 0**, PAYMENT count=100, failures=0. 비관적 락 직렬화 ✅ (1.232s)
+  - [x] 시나리오 2 (ADR 0010): 같은 멱등키 10번 동시 → **PAYMENT count=1**, 모두 같은 transactionId 반환, 잔액 99,000. SETNX + DB UNIQUE + replay 흐름 정합 ✅ (1.305s)
+  - [x] 시나리오 3 (ADR 0011): A↔B 양방향 이체 각 100건 동시 → 데드락 0, **잔액 합 2,000,000 보존**, TRANSFER count=200. 락 순서 정렬 ✅ (2.485s)
+  - [x] **함정 발견 + 해결 — JPA 1차 캐시가 PESSIMISTIC_WRITE 무력화**:
+    - 증상: 첫 실행에서 시나리오 3만 실패. 데드락도 예외도 없는데 잔액 합 2,017,000(예상 2,000,000) — 17건 분의 deduct 누락.
+    - 원인: `TransferService.transfer()` 첫 줄 `accountRepository.findByUserId(userId)`가 송금자 Account를 영속성 컨텍스트에 캐시 → 이후 `findByIdForUpdate(senderId)`가 1차 캐시 hit으로 `SELECT FOR UPDATE` 미발동 → 송금자 행에 락 미적용 → race condition.
+    - 픽스: `AccountRepository`에 `findIdByUserId(Long) → Optional<Long>` JPQL projection 추가 (엔티티 영속화 안 함). `TransferService`에서 송금자 ID만 추출.
+    - 학습 가치 ⭐⭐⭐ — "락이 잡혔다고 생각했는데 실은 캐시 hit". 정적 분석으로 안 잡히는 버그. **Step 10 동시성 테스트가 없었다면 영영 못 잡았을 것**.
+    - CLAUDE.md "동시성" 섹션에 함정 한 줄 추가.
+  - [x] 면접 답변지 활용 가능 수준 자료 확보 — 비관적 락 직렬화 / 멱등성 replay / 두 계정 락 정렬 / 1차 캐시 함정 4가지 모두 코드+테스트로 입증.
 - [x] **Step 9 — 거래내역 조회 API** ✅ 완료 (2026-05-17)
   - [x] `TransactionDirection` enum (`SELF` / `SENT` / `RECEIVED`) — 응답 DTO 전용. enum 선호는 ADR 0002 일관성.
   - [x] `TransactionResponse` record + `from(tx, myAccountId)` 정적 팩토리 — direction 자동 분기, **수신자 시점 balanceAfter=null** (ADR 0006 트레이드오프 정직 표현)
@@ -201,8 +209,7 @@
   - [x] 검증 5종: 정상 충전 10000 200 / 추가 충전 5000 → 잔액 누적 15000 ✅ / 0원 400 VALIDATION_FAILED / 토큰없음 401 / 잘못된 토큰 401
   - [x] **부수 발견**: PowerShell curl이 한국어 본문을 cp949로 보내 `JSON parse error: Invalid UTF-8 middle byte 0xe6` 발생 → fallback `log.error`(ADR-0007) 한 줄로 5초 진단. 픽스: ASCII 이름으로 우회 (앱은 무관). 면접 답변지 소재.
   - [x] 새 결정 0개 — 비관적 락(ADR 0006 컨텍스트) / KRW 고정(ADR 0007) / 명명 예외(컨벤션) 모두 기존 결정 적용. ADR 추가 없음.
-- [ ] Step 10 ⭐ — 동시성 통합 테스트
-- [ ] Step 11 — Swagger 시나리오 검증
+- [ ] Step 11 — Swagger 시나리오 검증 (ready.md §4의 12개 시나리오를 Swagger UI에서 통과)
 
 ---
 
@@ -216,6 +223,33 @@
 ---
 
 ## 💬 마지막 대화 요약
+
+### 2026-05-17 (밤 더 늦게) — Step 10 ⭐: 동시성 통합 테스트 + JPA 1차 캐시 함정
+
+1. **시나리오 짚기** — uShould.md Step 10의 3종(결제 100건 / 같은 키 10건 / A↔B 양방향 이체). ADR 0009/0010/0011을 비로소 진짜로 검증하는 핵심 단계. 새 ADR 없음 — 테스트 워크플로우 결정만(unique user per test / ExecutorService+CountDownLatch / DB 직접 검증).
+2. **`ConcurrencyTest.java` 단일 파일에 메서드 3개 + 헬퍼**:
+   - `@SpringBootTest` + Bean 6종 주입 (AuthService/AccountService/PaymentService/TransferService/AccountRepository/TransactionRepository)
+   - 헬퍼 `setupUserWithBalance(BigDecimal)` — `authService.signup` + `accountService.charge` 한 번에. unique timestamp 이메일.
+   - 시나리오마다: `ExecutorService(50)` + `CountDownLatch start/done` + `AtomicInteger success` + `CopyOnWriteArrayList<Throwable> failures`. 60~120초 타임아웃.
+   - 검증: assertJ로 `failures.isEmpty()` + `success==total` + DB 잔액 직접 조회 + transactions count.
+3. **첫 실행 — 시나리오 3 실패** ⚠
+   - 결과: `2 passed, 1 failed`. 시나리오 1, 2는 1.2~1.3초로 깔끔히 통과.
+   - 시나리오 3: 데드락 없음, failures.isEmpty() 통과, success==200 통과 — **그런데 잔액 합이 2,017,000(예상 2,000,000)**. 17건 분의 1,000원 deduct가 누락된 결과.
+4. **진단 — JPA 1차 캐시가 PESSIMISTIC_WRITE 무력화**:
+   - `TransferService.transfer()` 첫 줄 `accountRepository.findByUserId(userId)` (비락 조회) → 송금자 Account가 영속성 컨텍스트에 캐시됨
+   - 이후 `accountRepository.findByIdForUpdate(senderId)` 호출 → Hibernate가 1차 캐시 hit으로 **`SELECT FOR UPDATE` 미발동, 락 미적용**
+   - A→B와 B→A 양방향 동시 실행에서 한쪽 송금자 행에 락이 없어 race condition. 일부 deduct가 stale 잔액 위에 덮어쓰기 → net 17건의 deduct 누락.
+   - 데드락 감지나 예외가 나는 케이스가 아니라 **조용히 잔액이 어긋남** — 통합 테스트가 없었다면 영영 못 잡았을 함정.
+5. **픽스**:
+   - `AccountRepository`에 `findIdByUserId(Long userId) → Optional<Long>` 추가 — JPQL projection (`select a.id from Account a`). 엔티티 영속화 안 함.
+   - `TransferService`에서 `findByUserId(...).getId()` → `findIdByUserId(...)`로 교체. senderProbe 객체 제거.
+6. **재실행 — 3종 전부 통과** ✅
+   - 시나리오 1 (ADR 0009): 1.232s, PAYMENT 100건, 잔액 0
+   - 시나리오 2 (ADR 0010): 1.305s, PAYMENT 1건, 모두 같은 txId, 잔액 99,000
+   - 시나리오 3 (ADR 0011): 2.485s, TRANSFER 200건, 잔액 합 정확히 2,000,000
+7. **CLAUDE.md 갱신** — "동시성" 섹션에 "JPA 1차 캐시 함정" 한 줄 추가. 같은 트랜잭션 내 비락 조회 후 락 조회 시 캐시 hit 위험. 락 행은 처음부터 락으로 가져오거나 ID projection 사용.
+8. **면접 답변지 핵심 자료 확보** — 비관적 락 직렬화 / 멱등성 replay / 두 계정 락 정렬 / JPA 1차 캐시 함정 4가지가 모두 코드+테스트+ADR로 실증. uChoice.md 갱신 후보.
+9. **남은 일** — Step 10 단독 커밋 → Step 11 Swagger 시나리오(마지막).
 
 ### 2026-05-17 (밤 늦게) — Step 9: 거래내역 조회 API
 
