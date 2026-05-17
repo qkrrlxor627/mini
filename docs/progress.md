@@ -1,6 +1,6 @@
 # Mini Pay 학습 진행 상황
 
-> **마지막 업데이트**: 2026-05-15
+> **마지막 업데이트**: 2026-05-17
 > **가이드**: `docs/mini-pay-guide.md`
 > **컨벤션**: `CLAUDE.md` (프로젝트 루트)
 > **ADR**: `docs/adr/`
@@ -10,7 +10,7 @@
 
 ## 🎯 현재 위치
 
-**Step 6 완료 — 로그인 API + JWT 통합 검증 + 404 핸들러 추가. 검증 5종 통과. 다음은 Step 7 잔액 충전 API.**
+**Step 7 완료 — 잔액 충전 API + 비관적 락 첫 등장 + @AuthenticationPrincipal 첫 실전. 검증 5종 통과. 다음은 Step 8 결제 API (멱등성 + 두 계정 락은 이체).**
 
 ### 완료
 - 사전 인프라: `CLAUDE.md` + `docs/adr/README.md` 작성
@@ -56,16 +56,15 @@
 - 진행 방식: Claude 샘플 → 사용자 따라 쓰기 + 주석 채점 워크플로우 병행
 
 ### 다음 액션 (다음 세션 시작 시)
-1. **Step 5+6 묶음 커밋** — 메시지 초안: "Step 5+6: JWT 인프라 + 로그인 API + ADR 0008 + Flyway V3 픽스 + 404 핸들러".
-2. **Step 7 진입 — 잔액 충전 API** (`POST /api/v1/accounts/charge`):
-   - `AccountRepository.findByUserIdForUpdate()` — `@Lock(PESSIMISTIC_WRITE)` 첫 등장
-   - `TransactionRepository` 신설
-   - `ChargeRequest` / `ChargeResponse` DTO
-   - `AccountService` (`@Transactional` + 비관적 락 + `account.charge(money)` + `Transaction.charge` 기록)
-   - `AccountController.charge()` `@AuthenticationPrincipal Long userId` 사용 — Step 5 인프라의 첫 실전 활용
-   - `AccountNotFoundException`
-3. **Step 8 진입 시 ADR 0006 재방문** — 두 계정 락 순서 정렬 규칙을 별도 ADR로 분리할지 결정
-4. **8080 충돌 정리** — `itax-backend` 컨테이너 정리할지, `application.yml`에 `server.port: 8081` 박을지 결정
+1. **Step 7 커밋** — 메시지 초안: "Step 7: 잔액 충전 API + 비관적 락 첫 등장 + @AuthenticationPrincipal 첫 실전".
+2. **Step 8 진입 — 결제 API** (`POST /api/v1/payments`):
+   - 멱등성(`Idempotency-Key` 헤더 필수 + Redis SETNX + DB UNIQUE 이중 방어) **첫 등장**
+   - 비관적 락 + `account.deduct(money)` (잔액 부족 시 `InsufficientBalanceException → 400`)
+   - `Transaction.payment(merchantId, idempotencyKey)` 호출 — 이미 작성된 정적 팩토리 첫 실전
+   - `PaymentRequest`(amount + merchantId)/`PaymentResponse` DTO
+   - 핵심 결정 후보: 멱등 키 ADR(0009 후보) — Redis vs DB 책임 분담, TTL 10분, 응답 캐시
+   - 이체(TRANSFER)는 Step 8 후반 또는 별도 진입 — 두 계정 락 순서 정렬(ADR 0006 재방문)
+3. **8080 충돌 정리** — 해소됨(2026-05-17 부팅 정상). 추후 재현 시 `server.port: 8081` 박을지 결정
 
 ---
 
@@ -134,7 +133,17 @@
   - [x] `GlobalExceptionHandler` 핸들러 2종 추가: `InvalidCredentialsException → 401`, `NoResourceFoundException → 404`
   - [x] 검증 5종: 정상 가입+로그인 200 + JWT 발급 / 잘못된 비번 401 / 없는 이메일 401(동일 응답) / 토큰+매핑없는 경로 404 NOT_FOUND / 토큰없음+매핑없는 경로 401(필터가 먼저 잡음)
   - [x] **부수 발견**: ADR-0007 fallback 로깅 보강이 즉각 가치 발휘 — `NoResourceFoundException`을 단 1회 호출로 식별 가능. 진단→픽스 5분 컷.
-- [ ] Step 7 — 잔액 충전 API
+- [x] **Step 7 — 잔액 충전 API** ✅ 완료 (2026-05-17)
+  - [x] `AccountNotFoundException` (404 매핑, 명명 클래스)
+  - [x] `AccountRepository.findByUserIdForUpdate()` — `@Lock(PESSIMISTIC_WRITE)` + `@Query` **첫 등장**
+  - [x] `TransactionRepository` 신설
+  - [x] `ChargeRequest` (`@NotNull` + `@DecimalMin(1)` + `@Digits(15,4)`) / `ChargeResponse.from(tx)`
+  - [x] `AccountService.charge()` (`@Transactional` + 비관적 락 + `account.charge(money)` + `Transaction.charge` 기록, KRW 고정)
+  - [x] `AccountController.charge()` POST `/api/v1/accounts/charge` — `@AuthenticationPrincipal Long userId` **첫 실전**
+  - [x] `GlobalExceptionHandler`: `AccountNotFoundException → 404`, `InsufficientBalanceException → 400` 추가
+  - [x] 검증 5종: 정상 충전 10000 200 / 추가 충전 5000 → 잔액 누적 15000 ✅ / 0원 400 VALIDATION_FAILED / 토큰없음 401 / 잘못된 토큰 401
+  - [x] **부수 발견**: PowerShell curl이 한국어 본문을 cp949로 보내 `JSON parse error: Invalid UTF-8 middle byte 0xe6` 발생 → fallback `log.error`(ADR-0007) 한 줄로 5초 진단. 픽스: ASCII 이름으로 우회 (앱은 무관). 면접 답변지 소재.
+  - [x] 새 결정 0개 — 비관적 락(ADR 0006 컨텍스트) / KRW 고정(ADR 0007) / 명명 예외(컨벤션) 모두 기존 결정 적용. ADR 추가 없음.
 - [ ] Step 8 ⭐ — 결제 API (비관적 락 + 멱등성)
 - [ ] Step 9 — 거래내역 조회 API
 - [ ] Step 10 ⭐ — 동시성 통합 테스트
@@ -152,6 +161,30 @@
 ---
 
 ## 💬 마지막 대화 요약
+
+### 2026-05-17 — Step 7: 잔액 충전 API + 비관적 락 첫 등장
+
+1. **진입 결정** — 새 결정 0개 확인(비관적 락 = ADR 0006 컨텍스트, KRW 고정 = ADR 0007, 명명 예외 = 컨벤션). plan mode 안 거치고 컨벤션대로 진행.
+2. **파일 8종 일괄 작성**:
+   - `exception/AccountNotFoundException.java` (RuntimeException 상속)
+   - `repository/AccountRepository.java` — `findByUserIdForUpdate(Long userId)` + `@Lock(LockModeType.PESSIMISTIC_WRITE)` + `@Query("select a from Account a where a.userId = :userId")` (**비관적 락 첫 등장**)
+   - `repository/TransactionRepository.java` (베어 JpaRepository, Step 9에서 확장 예정)
+   - `dto/ChargeRequest.java` — record + `@NotNull` + `@DecimalMin("1")` + `@Digits(15,4)`
+   - `dto/ChargeResponse.java` — record + `from(Transaction tx)` 정적 팩토리 (transactionId/amount/balanceAfter/currency/createdAt)
+   - `service/AccountService.java` — `@Transactional` + 비관적 락 조회 + `Money.of(req.amount(), Currency.KRW)` + `account.charge(money)` + `Transaction.charge(account.getId(), amount, account.getBalance(), null)` + `transactionRepository.save(tx)` → `ChargeResponse.from(saved)`
+   - `controller/AccountController.java` — POST `/api/v1/accounts/charge` + `@AuthenticationPrincipal Long userId` (**Step 5 인프라 첫 실전**) + `@Valid` + 200
+   - `exception/GlobalExceptionHandler.java` 확장: `AccountNotFoundException → 404 ACCOUNT_NOT_FOUND`, `InsufficientBalanceException → 400 INSUFFICIENT_BALANCE` (Step 8 결제에서 즉시 활용 예정)
+3. **컴파일 + 빌드** — `.\gradlew clean compileJava` BUILD SUCCESSFUL 15s, `.\gradlew build` BUILD SUCCESSFUL (3 tests pass + Hibernate validate 통과).
+4. **부팅 + 검증 5종 전부 ✅**:
+   - 정상 10000 → 200, balanceAfter=10000.0000 (Money scale 4)
+   - 추가 5000 → 200, balanceAfter=**15000.0000 (잔액 누적)** — 같은 트랜잭션 내 비관적 락 정상 동작
+   - 0원 → 400 VALIDATION_FAILED ("amount: 금액은 1 이상이어야 합니다")
+   - 토큰 없음 → 401 UNAUTHORIZED (Filter → EntryPoint)
+   - 잘못된 토큰 → 401 UNAUTHORIZED (JwtException catch → 인증 미설정 → EntryPoint)
+5. **DB 직접 확인** — `accounts.balance_amount=15000.0000` / `transactions` 2건(CHARGE 10000 → balanceAfter 10000 / CHARGE 5000 → balanceAfter 15000) 모두 SUCCESS. `Transaction.charge` 정적 팩토리 + `Money` `@Embedded` 컬럼명 매핑 정합 확인.
+6. **함정 발견 + 즉시 진단** — PowerShell `curl.exe`가 한국어 본문(`"name":"충전테스트"`)을 cp949로 인코딩해 전송 → 서버에서 `JSON parse error: Invalid UTF-8 middle byte 0xe6` → HttpMessageNotReadableException → fallback handler가 500 INTERNAL_ERROR 응답. ADR-0007 fallback `log.error` 한 줄로 **진단 5초 컷**. 픽스: 테스트 이름을 ASCII `"ChargeTest"`로 변경 (앱 코드는 정상). 면접 답변지 소재 — "운영에선 PowerShell이 호출 안 하지만 학습 환경에서 클라이언트 인코딩 함정 학습".
+7. **새 결정/ADR 없음** — 의도대로 Step 7은 기존 결정의 첫 실전 적용만. ADR 0009는 Step 8 멱등성에서 작성 예정.
+8. **남은 일** — Step 7 단독 커밋 → Step 8 결제 API + 멱등성 진입.
 
 ### 2026-05-15 (밤) — Step 6: 로그인 API + 404 핸들러 추가
 
