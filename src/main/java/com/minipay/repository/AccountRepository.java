@@ -10,7 +10,13 @@ import java.util.Optional;
 
 public interface AccountRepository extends JpaRepository<Account, Long> {
 
+    Optional<Account> findByUserId(Long userId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from Account a where a.userId = :userId")
     Optional<Account> findByUserIdForUpdate(Long userId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from Account a where a.id = :accountId")
+    Optional<Account> findByIdForUpdate(Long accountId);
 }

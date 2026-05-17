@@ -23,7 +23,7 @@ public class AccountService {
     @Transactional
     public ChargeResponse charge(Long userId, ChargeRequest req) {
         Account account = accountRepository.findByUserIdForUpdate(userId)
-                .orElseThrow(() -> new AccountNotFoundException(userId));
+                .orElseThrow(() -> AccountNotFoundException.forUser(userId));
 
         Money amount = Money.of(req.amount(), Currency.KRW);
         account.charge(amount);
