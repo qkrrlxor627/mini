@@ -1,11 +1,11 @@
 # Mini Pay
 
-> Spring Boot + JPA + PostgreSQL + Redis 기반 **결제 백엔드 학습 프로젝트**.
+> Spring Boot + JPA + PostgreSQL + Redis 기반 **결제 백엔드** + React PWA **프론트엔드** 학습 프로젝트.
 > 충전·결제·이체·거래내역 + 비관적 락 + 멱등성 + JWT 인증을 한 도메인에 모아 둔 면접 답변지용 포트폴리오.
 
 ---
 
-## 🎯 현재 위치 (2026-05-18) — 🎉 프로젝트 종결
+## 🎯 현재 위치 (2026-05-26) — 🎉 백엔드 + 프론트엔드 종결
 
 | Step | 상태 | 핵심 |
 |---|---|---|
@@ -22,7 +22,22 @@
 | 10 | ✅ | 동시성 통합 테스트 3종 — ADR 0009/0010/0011 실증 + **JPA 1차 캐시 함정** 발견·해결 |
 | 11 | ✅ | Swagger E2E 시나리오 12종 통과 (골든 6 + 엣지 6) + SwaggerConfig Bearer 인증 |
 
-**프로젝트 통계**: ADR 11장 / 통합 테스트 3종 / E2E 시나리오 12/12 통과 / 검증된 함정 4종
+**(종결 후속, 2026-05-26)** 충전 API 멱등성 확장(ADR 0012) + 프론트 지원용 `GET /accounts/me` 추가.
+
+### 🎨 프론트엔드 (React PWA) — M0~M7 종결
+
+| M | 상태 | 핵심 |
+|---|---|---|
+| 0 | ✅ | Vite + React19 + TS + Tailwind v4 스캐폴드 + `@theme` 디자인 토큰 시스템 (ADR 0013) |
+| 1 | ✅ | UI 프리미티브 15종 + 갤러리 |
+| 2 | ✅ | API 레이어 + 인증 (인메모리 JWT, ADR 0014) + 로그인/회원가입 |
+| 3 | ✅ | 대시보드(홈) + 탭 셸 |
+| 4 | ✅ | 머니 플로우 (충전/결제/송금 + 멱등키 변수 패턴) |
+| 5 | ✅ | 거래내역 무한 스크롤 |
+| 6 | ✅ | PWA 하드닝 (Workbox + 앱셸 프리캐시 + `/api/v1` GET NetworkOnly, ADR 0015) |
+| 7 | ✅ | 폴리시 (슬라이드 전환 + `prefers-reduced-motion` + 다크모드 토글 + 프로필) |
+
+**프로젝트 통계**: ADR 15장(백엔드 12 + 프론트 3) / 통합 테스트 3종 / E2E 12/12 통과 / 검증된 함정 4종 / 프론트 PWA M0~M7 (973모듈, 테스트 15)
 
 ---
 
@@ -44,6 +59,15 @@ docker compose up -d   # postgres + redis
 
 > ⚠️ **JWT secret** — `application.yml`의 `${JWT_SECRET}` 디폴트는 학습용. 운영은 32바이트 이상 환경변수.
 
+### 프론트엔드 (React PWA)
+
+```powershell
+cd frontend
+npm install
+npm run dev        # http://localhost:5173 (백엔드 8080이 함께 떠 있어야 데이터 로드, CORS 허용됨)
+npm run build && npm run preview   # SW/manifest 포함 PWA 프로덕션 미리보기
+```
+
 ---
 
 ## 📡 완성된 API
@@ -52,7 +76,8 @@ docker compose up -d   # postgres + redis
 |---|---|---|---|
 | `POST` | `/api/v1/auth/signup` | 회원가입 — User + Account 동시 생성 | 201 / 409 DUPLICATE_EMAIL / 400 VALIDATION_FAILED |
 | `POST` | `/api/v1/auth/login` | 로그인 — JWT 발급 (1시간) | 200 / 401 INVALID_CREDENTIALS (이메일·비번 통합) |
-| `POST` | `/api/v1/accounts/charge` | 잔액 충전 — 비관적 락 | 200 / 400 / 401 / 404 ACCOUNT_NOT_FOUND |
+| `POST` | `/api/v1/accounts/charge` | 잔액 충전 — 비관적 락 + 멱등성. `Idempotency-Key` 헤더 필수 (ADR 0012) | 200 / 400 / 401 / 404 / 409 IDEMPOTENCY_KEY_CONFLICT / 400 MISSING_IDEMPOTENCY_KEY |
+| `GET` | `/api/v1/accounts/me` | 내 계좌 요약 (잔액·통화) — 읽기 전용 | 200 / 401 |
 | `POST` | `/api/v1/payments` | 결제 — 멱등성 + 비관적 락. `Idempotency-Key` 헤더 필수 | 200 / 400 / 401 / 409 IDEMPOTENCY_KEY_CONFLICT / 400 MISSING_IDEMPOTENCY_KEY / 400 INSUFFICIENT_BALANCE |
 | `POST` | `/api/v1/transfers` | 이체 — 두 계정 정렬 락 + 멱등성 | 200 / 400 INVALID_TRANSFER_TARGET / 400 INSUFFICIENT_BALANCE / 404 / 409 |
 | `GET` | `/api/v1/transactions?page=&size=` | 거래내역 — 송금자/수신자 양쪽 시점 + `direction`(SELF/SENT/RECEIVED) | 200 / 400 / 401 |
@@ -76,6 +101,7 @@ docker compose up -d   # postgres + redis
 | [`docs/uLearn.md`](docs/uLearn.md) | 완성 시 보유할 학습 자산 인덱스 + 면접 질문 매핑 |
 | [`docs/swaggerTroubleShoot0515.md`](docs/swaggerTroubleShoot0515.md) | Swagger 500 트러블슈팅 (Step 4) |
 | [`docs/swagger-e2e-0518.md`](docs/swagger-e2e-0518.md) | **Step 11 E2E 12종 검증 결과 + Swagger UI 가이드 + 면접 답변지 매핑** |
+| [`docs/api.md`](docs/api.md) | **프론트 연동용 API 명세** — 엔드포인트 7종 + 멱등성 헤더 + 에러 카탈로그 |
 | [`sql.md`](sql.md) | ERD Cloud용 MySQL DDL |
 
 ### 🚀 Mini Pay 이후 (afterpjt 시리즈)
@@ -85,6 +111,14 @@ docker compose up -d   # postgres + redis
 | [`docs/afterpjtForFe.md`](docs/afterpjtForFe.md) | **프론트엔드 인수인계 가이드** — Swagger / 인증 흐름 / 클라이언트 책임(Idempotency-Key) / 에러 카탈로그 12종 / 데이터 포맷 함정 / CORS / 화면 시나리오 매핑 |
 | [`docs/afterpjtStandard.md`](docs/afterpjtStandard.md) | **다음 백엔드 프로젝트 표준 가이드** — Mini Pay 회고 + 업계 표준(12-Factor App / DDD / ADR / Accelerate / OWASP) 6-Phase 라이프사이클 |
 | [`docs/afterpjtLearn.md`](docs/afterpjtLearn.md) | **Mini Pay 이후 심화 학습** — Mini Pay 코드 줄 단위 인용 + 12개 파트(자바 / JVM / IDE / 문서 사고 / Git / 코드 리뷰 / 자료구조 / DB / SOLID / 네트워크 / OWASP / 분산 시스템) |
+
+### 🎨 프론트엔드 (React PWA)
+
+| 파일 | 역할 |
+|---|---|
+| [`frontend/CLAUDE.md`](frontend/CLAUDE.md) | 프론트 컨벤션 (토큰 소비 / 인메모리 JWT / 멱등키 패턴) |
+| [`docs/frontend/progress.md`](docs/frontend/progress.md) | 프론트 시간순 진행 (M0~M7 + 세션별 요약) |
+| [`docs/MiniPayPrototype.html`](docs/MiniPayPrototype.html) | 디자인 토큰 소스 (프로토타입 HTML) |
 
 ---
 
@@ -105,6 +139,10 @@ docker compose up -d   # postgres + redis
 | [0009](docs/adr/0009-pessimistic-locking.md) | 잔액 변경은 비관적 락(PESSIMISTIC_WRITE) 디폴트 | 7~8 |
 | [0010](docs/adr/0010-idempotency-dual-defense.md) | 멱등성 Redis SETNX(1차) + DB UNIQUE(최후 방어) 이중 방어 | 8 |
 | [0011](docs/adr/0011-transfer-lock-ordering.md) | 이체 시 두 계좌 락은 `account_id` 오름차순 정렬 후 획득 | 8 |
+| [0012](docs/adr/0012-charge-idempotency.md) | 충전(CHARGE) API에도 멱등성 적용 (ADR 0010 패턴 확장) | 12 |
+| [0013](docs/adr/0013-tailwind-v4-token-system.md) | 프론트 디자인 토큰은 Tailwind v4 `@theme` 단일 진실 소스 | FE M0 |
+| [0014](docs/adr/0014-frontend-jwt-storage.md) | 프론트 JWT는 인메모리 저장 (localStorage 금지) | FE M2 |
+| [0015](docs/adr/0015-pwa-caching-strategy.md) | PWA 캐싱 — 앱셸 프리캐시 + 인증 GET NetworkOnly | FE M6 |
 
 전체 인덱스: [`docs/adr/README.md`](docs/adr/README.md)
 
@@ -118,7 +156,7 @@ src/main/java/com/minipay
 ├── repository    — UserRepository / AccountRepository(락 메서드 3종 포함) / TransactionRepository
 ├── service       — AuthService / AccountService / PaymentService / TransferService / TransactionQueryService / IdempotencyStore
 ├── controller    — AuthController / AccountController / PaymentController / TransferController / TransactionController
-├── dto           — record (SignupRequest/Response, LoginRequest/Response, ChargeRequest/Response, PaymentRequest/Response, TransferRequest/Response, TransactionResponse, PageResponse<T>, ErrorResponse)
+├── dto           — record (SignupRequest/Response, LoginRequest/Response, ChargeRequest/Response, PaymentRequest/Response, TransferRequest/Response, TransactionResponse, AccountMeResponse, PageResponse<T>, ErrorResponse)
 ├── security      — JwtTokenProvider / JwtAuthenticationFilter / JwtAuthenticationEntryPoint
 ├── config        — SecurityConfig / SwaggerConfig
 └── exception     — DuplicateEmailException / InvalidCredentialsException / AccountNotFoundException(forUser/forAccount) / MissingIdempotencyKeyException / IdempotencyKeyConflictException / InvalidTransferTargetException / GlobalExceptionHandler
