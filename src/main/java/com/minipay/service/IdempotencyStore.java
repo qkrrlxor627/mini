@@ -13,12 +13,17 @@ import java.time.Duration;
 @RequiredArgsConstructor
 public class IdempotencyStore {
 
+    private static final String CHARGE_PREFIX = "idem:charge:";
     private static final String PAYMENT_PREFIX = "idem:payment:";
     private static final String TRANSFER_PREFIX = "idem:transfer:";
     private static final Duration DEFAULT_TTL = Duration.ofMinutes(10);
     private static final String IN_PROGRESS = "in-progress";
 
     private final StringRedisTemplate redisTemplate;
+
+    public boolean tryAcquireCharge(String key) {
+        return tryAcquire(CHARGE_PREFIX + key);
+    }
 
     public boolean tryAcquirePayment(String key) {
         return tryAcquire(PAYMENT_PREFIX + key);

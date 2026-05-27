@@ -66,7 +66,9 @@ docker compose up -d   # postgres + redis
 
 ## 3. ⚠️ 클라이언트가 책임지는 일 — **가장 중요**
 
-### 3-1. `Idempotency-Key` 헤더 (결제·이체 필수)
+### 3-1. `Idempotency-Key` 헤더 (충전·결제·이체 필수)
+
+> ⚠️ **2026-05-26 변경(ADR 0012)**: 충전(`POST /accounts/charge`)도 이제 `Idempotency-Key` 헤더가 **필수**입니다. 충전도 돈이 들어오는 쓰기라 더블클릭/재시도 시 잔액이 2배 늘 수 있어, 결제·이체와 동일 규칙을 적용합니다. 충전 호출에 헤더를 안 붙이면 400 `MISSING_IDEMPOTENCY_KEY`.
 
 ```http
 POST /api/v1/payments
@@ -132,7 +134,7 @@ if (amount > myBalance) {
 | `UNAUTHORIZED` | 401 | JWT 없음 / 만료 / 잘못된 토큰 | **자동 로그아웃 → 로그인 화면 리다이렉트** |
 | `ACCOUNT_NOT_FOUND` | 404 | 이체 시 수신자 계좌 없음 (또는 충전 시 본인 계좌 없음) | 토스트 + 이전 화면 |
 | `INSUFFICIENT_BALANCE` | 400 | 결제·이체 시 잔액 부족 | 모달 "잔액이 부족합니다" + 충전 화면 유도 |
-| `MISSING_IDEMPOTENCY_KEY` | 400 | 결제·이체 요청에 `Idempotency-Key` 헤더 누락 | **프론트 버그 — 사용자에게 보이면 안 됨**. Sentry로 알림 |
+| `MISSING_IDEMPOTENCY_KEY` | 400 | 충전·결제·이체 요청에 `Idempotency-Key` 헤더 누락 | **프론트 버그 — 사용자에게 보이면 안 됨**. Sentry로 알림 |
 | `IDEMPOTENCY_KEY_CONFLICT` | 409 | 같은 키로 다른 본문 요청 | **프론트 버그** — 위와 동일 |
 | `INVALID_TRANSFER_TARGET` | 400 | 자기 자신에게 이체 시도 | "자기 자신에게 이체할 수 없습니다" 토스트 |
 | `INVALID_ARGUMENT` | 400 | 페이지네이션 `size > 100` 등 |  "요청 값을 확인해주세요" |
@@ -243,21 +245,21 @@ cors:
 
 ## 7. 백엔드 보완 후보 (현재 부족한 것)
 
-### 7-1. `GET /api/v1/accounts/me` (예정)
+### 7-1. `GET /api/v1/accounts/me` ✅ 구현됨 (2026-05-26)
 
-**용도**: 본인 `accountId` + 현재 잔액 조회.
+**용도**: 본인 `accountId` + 현재 잔액 조회. 대시보드 잔액 표시 + 이체 자기 자신 1차 차단에 사용.
 
-**왜 필요한가**:
-- 이체 화면에서 "자기 자신 이체" 1차 차단하려면 `myAccountId` 알아야 함
-- 현재는 거래내역 응답에서 `accountId` 추출해야 — 친절하지 않음
-- 잔액 화면에서 매번 거래내역 불러올 필요 없음
+- **인증 필요**, 멱등키 불필요.
 
-**예상 응답**:
+**응답 (200)**:
 ```json
-{ "accountId": 22, "balance": 7000.0000, "currency": "KRW" }
+{ "accountId": 29, "balance": 7777.0000, "currency": "KRW" }
 ```
 
-> 백엔드 한 줄 추가로 구현 가능. 협업 시작 시 우선 추가 권장.
+- `401 UNAUTHORIZED` — 토큰 누락/만료/위조
+- `404 ACCOUNT_NOT_FOUND` — 계좌 없음 (정상 흐름에선 발생 안 함)
+
+> 상세 명세는 `docs/api.md` §7 참고.
 
 ### 7-2. `GET /api/v1/accounts/by-email?email=...` 또는 친구 검색 (예정)
 
@@ -275,8 +277,8 @@ cors:
 |---|---|---|
 | 회원가입 | `POST /api/v1/auth/signup` | #1, #12 (중복 이메일) |
 | 로그인 | `POST /api/v1/auth/login` | #2 + INVALID_CREDENTIALS |
-| 메인/대시보드 | (`GET /accounts/me` ← 예정) + `GET /api/v1/transactions?size=5` | 잔액 + 최근 거래 미리보기 |
-| 충전 | `POST /api/v1/accounts/charge` | #3 |
+| 메인/대시보드 | `GET /api/v1/accounts/me` + `GET /api/v1/transactions?size=5` | 잔액 + 최근 거래 미리보기 |
+| 충전 | `POST /api/v1/accounts/charge` + `Idempotency-Key` | #3 |
 | 결제 | `POST /api/v1/payments` + `Idempotency-Key` | #4, #7 (잔액 초과), #8 (replay) |
 | 이체 | `POST /api/v1/transfers` + `Idempotency-Key` | #5, #9 (자기 자신), #10 (잔액 초과) |
 | 거래내역 | `GET /api/v1/transactions?page=&size=` | #6 (송금자/수신자 양쪽 시점 + direction 분기) |
@@ -294,11 +296,11 @@ cors:
 >
 > 단, **첫 요청이 200 성공한 후 같은 키로 같은 본문 재시도하면 첫 응답 그대로 반환** (idempotent replay). 다른 본문으로 같은 키 사용은 409.
 
-### Q3. 결제·이체에서 `Idempotency-Key` 같은 값 재사용 언제까지 가능?
+### Q3. 충전·결제·이체에서 `Idempotency-Key` 같은 값 재사용 언제까지 가능?
 > Redis TTL **10분**. 그 후엔 DB UNIQUE만 남음 — DB에 같은 키 거래가 있으면 여전히 충돌 감지.
 
 ### Q4. 잔액 표시는 어디서 받나요?
-> 현재는 (a) 거래 응답의 `balanceAfter` (단 RECEIVED는 null), (b) 거래내역 첫 행의 `balanceAfter` — 임시 방편. 정공법은 `GET /accounts/me` 추가 (§7).
+> `GET /api/v1/accounts/me` (§7-1, 2026-05-26 구현됨)로 본인 잔액·accountId를 직접 조회. 거래 응답의 `balanceAfter`는 보조(단 RECEIVED는 null).
 
 ### Q5. WebSocket / SSE로 실시간 알림 있어요?
 > 현재 없음. 모두 polling 또는 사용자 액션 기반.

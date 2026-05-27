@@ -1,0 +1,28 @@
+/*
+  self-host woff2 (public/fonts/). 프로토타입은 base64 인라인이었지만,
+  PWA 오프라인 앱셸은 폰트를 직접 소유해야 하므로 공식 배포본을 self-host.
+  Pretendard Variable: 가변 폰트(weight 45~920) 한 파일로 전 굵기 커버.
+*/
+@font-face {
+  font-family: 'Pretendard Variable';
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/PretendardVariable.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/IBMPlexMono-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/IBMPlexMono-SemiBold.woff2') format('woff2');
+}

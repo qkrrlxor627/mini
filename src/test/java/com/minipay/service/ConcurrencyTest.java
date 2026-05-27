@@ -213,7 +213,8 @@ class ConcurrencyTest {
         String email = "concur-" + System.nanoTime() + "@test.com";
         SignupResponse signup = authService.signup(
                 new SignupRequest(email, "Abc12345!", "ConcurTest", "1234"));
-        accountService.charge(signup.userId(), new ChargeRequest(balance));
+        accountService.charge(signup.userId(), "charge-setup-" + System.nanoTime(),
+                new ChargeRequest(balance));
         return signup.userId();
     }
 

@@ -70,9 +70,9 @@
 
 ## 멱등성 (Step 8+)
 
-- 결제·이체 API는 `Idempotency-Key` 헤더 필수.
-- **Redis SETNX(빠른 1차) + DB UNIQUE(최후 방어선)** 이중 방어.
-- Redis 장애 시 결제/이체는 살아있어야 함 → DB UNIQUE가 최종 차단.
+- 충전·결제·이체 API는 `Idempotency-Key` 헤더 필수 (충전은 ADR 0012로 확장 — 돈 들어오는 쓰기라 중복 위험 동일).
+- **Redis SETNX(빠른 1차) + DB UNIQUE(최후 방어선)** 이중 방어. Redis prefix는 작업별 분리(`idem:charge:`/`idem:payment:`/`idem:transfer:`).
+- Redis 장애 시 충전/결제/이체는 살아있어야 함 → DB UNIQUE가 최종 차단.
 - TTL 10분 디폴트.
 
 ## 에러 핸들링
@@ -133,7 +133,7 @@
 - 락 잡고 외부 호출 — 위 룰과 동일하게 거절.
 
 ### 멱등성 (Step 8+)
-- 결제·이체 API에 `Idempotency-Key` 헤더 검증 누락 — 중복 결제/이체.
+- 충전·결제·이체 API에 `Idempotency-Key` 헤더 검증 누락 — 중복 충전/결제/이체 (충전 포함은 ADR 0012).
 - Redis SETNX만 있고 DB `UNIQUE(idempotency_key)` 없음 — 이중 방어 무력화.
 - 멱등 키 TTL 누락 — 키 무한 누적.
 

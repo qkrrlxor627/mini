@@ -49,5 +49,9 @@ Proposed | Accepted | Deprecated | Superseded by ADR-XXXX
 | [0009](0009-pessimistic-locking.md) | 잔액 변경은 비관적 락(PESSIMISTIC_WRITE) 디폴트 | Accepted | 7~8 |
 | [0010](0010-idempotency-dual-defense.md) | 멱등성은 Redis SETNX(1차) + DB UNIQUE(최후 방어) 이중 방어 | Accepted | 8 |
 | [0011](0011-transfer-lock-ordering.md) | 이체 시 두 계좌 락은 account_id 오름차순 정렬 후 획득 (데드락 회피) | Accepted | 8 |
+| [0012](0012-charge-idempotency.md) | 충전(CHARGE) API에도 멱등성 적용 (ADR-0010 패턴 확장) | Accepted | 12 |
+| [0013](0013-tailwind-v4-token-system.md) | 프론트 디자인 토큰은 Tailwind v4 `@theme` 단일 진실 소스 | Accepted | FE M0 |
+| [0014](0014-frontend-jwt-storage.md) | 프론트 JWT는 인메모리 저장 (localStorage 금지) | Accepted | FE M2 |
+| [0015](0015-pwa-caching-strategy.md) | PWA 캐싱 — 앱셸 프리캐시 + 인증 GET NetworkOnly | Accepted | FE M6 |
 
 > ADR은 Step별 코드 작성 후 채움. 코드를 만져보고 나서야 트레이드오프가 진짜로 보이기 때문.
