@@ -1,0 +1,217 @@
+@import 'tailwindcss';
+@import './fonts.css';
+
+/* 클래스 기반 다크모드: <html class="dark"> */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+  단일 진실 소스 — docs/MiniPayPrototype.html 의 :root 토큰을 Tailwind v4
+  @theme 으로 포팅. 여기 정의한 토큰은 CSS 변수(var(--color-brand-500)) +
+  유틸리티 클래스(bg-brand-500, text-fg-muted, rounded-3 …)를 동시에 생성한다.
+  컴포넌트는 하드코딩 hex 금지 — 반드시 이 토큰만 소비.
+*/
+@theme {
+  /* ── 브랜드 "Mint Cobalt" ─────────────────────────────── */
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dbe6ff;
+  --color-brand-200: #b8ccff;
+  --color-brand-300: #8aacff;
+  --color-brand-400: #5b85ff;
+  --color-brand-500: #3b63f5;
+  --color-brand-600: #2a4bdc;
+  --color-brand-700: #2239ad;
+  --color-brand-800: #1e3088;
+  --color-brand-900: #1a296e;
+
+  /* ── 뉴트럴 (ink) ─────────────────────────────────────── */
+  --color-ink-0: #ffffff;
+  --color-ink-50: #f7f8fa;
+  --color-ink-100: #eef0f4;
+  --color-ink-200: #e2e5eb;
+  --color-ink-300: #c9ced8;
+  --color-ink-400: #9ba2b0;
+  --color-ink-500: #6b7280;
+  --color-ink-600: #4a505c;
+  --color-ink-700: #2f343d;
+  --color-ink-800: #1d2128;
+  --color-ink-900: #0f1116;
+
+  /* ── 시맨틱 ───────────────────────────────────────────── */
+  --color-pos-50: #e8f8ef;
+  --color-pos-500: #16a34a;
+  --color-pos-700: #15803d;
+  --color-neg-50: #fdecec;
+  --color-neg-500: #e0364a;
+  --color-neg-700: #b1273a;
+  --color-warn-50: #fff5e1;
+  --color-warn-500: #f59e0b;
+  --color-warn-700: #b87307;
+  --color-info-50: #e6f4fb;
+  --color-info-500: #0ea5e9;
+
+  /* ── surface alias (다크모드에서 .dark 가 덮어씀) ──────── */
+  --color-bg: #f7f8fa;
+  --color-bg-elevated: #ffffff;
+  --color-bg-sunken: #eef0f4;
+  --color-bg-inverse: #0f1116;
+  --color-fg: #0f1116;
+  --color-fg-muted: #6b7280;
+  --color-fg-subtle: #9ba2b0;
+  --color-fg-onbrand: #ffffff;
+  --color-border: #e2e5eb;
+  --color-border-strong: #c9ced8;
+  --color-divider: #eef0f4;
+
+  /* ── 폰트 ─────────────────────────────────────────────── */
+  --font-sans:
+    'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+    'Apple SD Gothic Neo', 'Noto Sans KR', 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  /* ── 타이포 스케일 → text-display-1 등 (size + line-height + weight) ── */
+  --text-display-1: 56px;
+  --text-display-1--line-height: 1.05;
+  --text-display-1--font-weight: 700;
+  --text-display-2: 40px;
+  --text-display-2--line-height: 1.1;
+  --text-display-2--font-weight: 700;
+  --text-h1: 28px;
+  --text-h1--line-height: 1.2;
+  --text-h1--font-weight: 700;
+  --text-h2: 22px;
+  --text-h2--line-height: 1.3;
+  --text-h2--font-weight: 700;
+  --text-h3: 18px;
+  --text-h3--line-height: 1.35;
+  --text-h3--font-weight: 600;
+  --text-body-lg: 17px;
+  --text-body-lg--line-height: 1.5;
+  --text-body-lg--font-weight: 500;
+  --text-body: 15px;
+  --text-body--line-height: 1.55;
+  --text-body--font-weight: 500;
+  --text-body-sm: 13px;
+  --text-body-sm--line-height: 1.5;
+  --text-body-sm--font-weight: 500;
+  --text-caption: 12px;
+  --text-caption--line-height: 1.4;
+  --text-caption--font-weight: 500;
+  --text-overline: 11px;
+  --text-overline--line-height: 1.2;
+  --text-overline--font-weight: 600;
+  --text-num-lg: 32px;
+  --text-num-lg--line-height: 1.1;
+  --text-num-lg--font-weight: 700;
+  --text-num-md: 20px;
+  --text-num-md--line-height: 1.2;
+  --text-num-md--font-weight: 600;
+
+  /* ── radius → rounded-1 … rounded-pill ────────────────── */
+  --radius-1: 6px;
+  --radius-2: 10px;
+  --radius-3: 14px;
+  --radius-4: 20px;
+  --radius-5: 28px;
+  --radius-pill: 999px;
+
+  /* ── shadow → shadow-1/2/3/brand/inset ────────────────── */
+  --shadow-1: 0 1px 2px rgba(15, 17, 22, 0.04), 0 1px 1px rgba(15, 17, 22, 0.03);
+  --shadow-2: 0 4px 12px rgba(15, 17, 22, 0.06), 0 2px 4px rgba(15, 17, 22, 0.04);
+  --shadow-3: 0 12px 32px rgba(15, 17, 22, 0.08), 0 4px 8px rgba(15, 17, 22, 0.04);
+  --shadow-brand: 0 8px 24px rgba(59, 99, 245, 0.28);
+  --shadow-inset: inset 0 2px 4px rgba(15, 17, 22, 0.08);
+
+  /* ── 모션 ─────────────────────────────────────────────── */
+  --ease-standard: cubic-bezier(0.2, 0, 0.1, 1);
+  --ease-emphasis: cubic-bezier(0.2, 0, 0, 1);
+  --ease-decel: cubic-bezier(0, 0, 0.2, 1);
+
+  /* ── 컨테이너 ─────────────────────────────────────────── */
+  --container-mobile: 402px;
+}
+
+/* 다크모드: 표면 alias 만 스왑. brand/ink 스케일은 고정. */
+.dark {
+  --color-bg: #0b0d12;
+  --color-bg-elevated: #14171d;
+  --color-bg-sunken: #1d2128;
+  --color-bg-inverse: #f7f8fa;
+  --color-fg: #ffffff;
+  --color-fg-muted: #9ba2b0;
+  --color-fg-subtle: #6b7280;
+  --color-border: #2f343d;
+  --color-border-strong: #4a505c;
+  --color-divider: #1d2128;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    margin: 0;
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+  }
+}
+
+/* 돈/숫자 정렬용 — 자릿수 폭 고정 (Pretendard tabular-nums) */
+@utility num {
+  font-variant-numeric: tabular-nums;
+}
+/* 참조번호/코드용 모노 */
+@utility mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 화면/시트 전환 애니메이션 (프로토타입 모션 토큰) ───── */
+@keyframes sheetUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes overlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes enterRight {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@utility animate-sheet-up {
+  animation: sheetUp 0.32s var(--ease-emphasis);
+}
+@utility animate-overlay-in {
+  animation: overlayIn 0.2s var(--ease-standard);
+}
+@utility animate-enter-right {
+  animation: enterRight 0.32s var(--ease-emphasis);
+}
+
+/* 모션 민감 사용자(접근성): 전환/애니메이션 사실상 제거. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
