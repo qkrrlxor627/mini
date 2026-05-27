@@ -1,6 +1,6 @@
 # Mini Pay 학습 진행 상황
 
-> **마지막 업데이트**: 2026-05-17
+> **마지막 업데이트**: 2026-05-26
 > **가이드**: `docs/mini-pay-guide.md`
 > **컨벤션**: `CLAUDE.md` (프로젝트 루트)
 > **ADR**: `docs/adr/`
@@ -10,7 +10,9 @@
 
 ## 🎯 현재 위치
 
-**🎉 Mini Pay 프로젝트 완료 — Step 0~11 전부 통과. ADR 11장, 통합 테스트 3종(ADR 0009/0010/0011 실증), Swagger E2E 12종(ready.md §4 골든 패스 6 + 엣지 6) 전부 통과. 면접 답변지 자료 충실.**
+**🎉 Mini Pay 프로젝트 완료 — Step 0~11 전부 통과. ADR 12장, 통합 테스트 3종(ADR 0009/0010/0011 실증), Swagger E2E 12종(ready.md §4 골든 패스 6 + 엣지 6) 전부 통과. 면접 답변지 자료 충실.**
+
+**(2026-05-26 후속) 충전 API에 멱등성 확장 — ADR 0012.** Step 7에서 가이드 진행 순서상 생략했던 충전 멱등성을 결제·이체와 동일 패턴으로 추가. `docs/api.md` 기능표에서 충전 멱등키가 ❌였던 비대칭을 해소(충전도 돈 들어오는 쓰기라 중복 시 잔액 2배 위험). 마이그레이션 0(V1 전역 UNIQUE 재사용), curl 6종 검증 통과.
 
 ### 완료
 - 사전 인프라: `CLAUDE.md` + `docs/adr/README.md` 작성
@@ -227,6 +229,17 @@
 ---
 
 ## 💬 마지막 대화 요약
+
+### 2026-05-26 — 후속: 충전 API 멱등성 확장 (ADR 0012)
+
+1. **발단** — 기능 목록 표를 보던 중 "충전(3번)은 왜 인증·멱등키가 ❌냐"는 질문. 인증 ❌은 정상(충전은 ✅임, 표의 ❌은 회원가입/로그인 얘기)이고, 거래내역 조회 멱등키 ❌도 정상(GET=본질적 멱등). **충전 멱등키 ❌만 진짜 결함** — Step 7에서 가이드 진행 순서상 생략했을 뿐, 충전도 돈 들어오는 쓰기라 더블클릭/재시도 시 잔액 2배.
+2. **새 결정 1개 → ADR 0012** — 결제·이체(ADR 0010)와 동일 멱등성 이중 방어를 충전에 확장. B안(키 옵셔널)/C안(전용 메커니즘) 기각 사유 박음.
+3. **마이그레이션 불필요** — `transactions.idempotency_key`는 V1부터 전역 UNIQUE. 충전 행이 그동안 NULL 넣던 컬럼에 이제 키를 채우면 DB 최후 방어선 그대로 동작. 스키마 변경 0.
+4. **코드 4파일** — `IdempotencyStore.tryAcquireCharge`(+`idem:charge:` prefix) / `AccountService.charge(userId, idempotencyKey, req)` 시그니처 변경 + replay/SETNX/self-heal 흐름(PaymentService 미러링) / `AccountController` 헤더 필수 검증 / `ConcurrencyTest` 헬퍼 charge 호출에 고유 키. `Transaction.charge`는 이미 idempotencyKey 파라미터 받고 있어 수정 불요(기존 `null` → 키 전달).
+5. **GlobalExceptionHandler 수정 0** — `MissingIdempotencyKey→400`/`IdempotencyKeyConflict→409` 핸들러 이미 존재.
+6. **문서** — ADR 0012 + README 인덱스 / `CLAUDE.md` 멱등성 룰·리뷰 체크리스트(결제·이체 → 충전·결제·이체) / `docs/api.md`(충전 엔드포인트 멱등키 필수 + 에러 + curl 예시, 멱등성 헤더 표, 관련 ADR).
+7. **검증** — `build` BUILD SUCCESSFUL(동시성 테스트 3종 통과). 부팅 후 curl 6종 전부 통과: ①최초 충전 200(txId=1233, 10000) ②같은 키+같은 본문 200 **replay(txId 동일, 잔액 그대로)** ③같은 키+다른 금액 409 IDEMPOTENCY_KEY_CONFLICT ④헤더 누락 400 MISSING ⑤신규 키 200 **잔액 정확히 15000(중복 충전 차단 증명)** ⑥빈 문자열 키 400 MISSING. Redis `idem:charge:` 키 2개(성공 건만, replay/409는 SETNX 진입 전 반환).
+8. **함정** — 포트 8080을 이전 세션 구버전 앱이 점유 중이라 첫 bootRun 실패. PID 종료 후 재기동해 신버전으로 검증.
 
 ### 2026-05-18 — Step 11: Swagger E2E 시나리오 12종 + 프로젝트 종결
 
